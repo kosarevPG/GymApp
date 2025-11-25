@@ -52,7 +52,7 @@ interface GlobalWorkoutSession {
     date: string;
     muscleGroups: string[];
     duration: string;
-    exercises: { name: string; sets: any[] }[];
+    exercises: { name: string; sets: any[]; supersetId?: string }[];
 }
 
 // --- API SERVICE (REAL FETCH) ---
