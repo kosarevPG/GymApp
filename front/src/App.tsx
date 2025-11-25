@@ -141,7 +141,7 @@ const useTimer = () => {
     if (isRunning) return;
     setIsRunning(true);
     const startTime = Date.now() - time;
-    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 1000);
+    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 50);
   };
   const pause = () => {
     setIsRunning(false);
@@ -159,7 +159,7 @@ const useTimer = () => {
     // Затем сразу запускаем
     setIsRunning(true);
     const startTime = Date.now();
-    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 1000);
+    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 50);
   };
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
