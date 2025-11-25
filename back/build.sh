@@ -22,5 +22,5 @@ else
 fi
 
 # Устанавливаем остальные зависимости
-pip install --prefer-binary aiohttp>=3.8.5,<3.9.0 gspread==5.12.0 google-auth==2.23.4 google-auth-oauthlib==1.1.0 google-auth-httplib2==0.1.1 python-dotenv==1.0.0
+pip install --prefer-binary "aiohttp>=3.8.5,<3.9.0" gspread==5.12.0 google-auth==2.23.4 google-auth-oauthlib==1.1.0 google-auth-httplib2==0.1.1 python-dotenv==1.0.0
 
