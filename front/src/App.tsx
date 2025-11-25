@@ -165,7 +165,8 @@ const useTimer = () => {
     const totalSeconds = Math.floor(ms / 1000);
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
     const s = (totalSeconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+    const ms2 = Math.floor((ms % 1000) / 10).toString().padStart(2, '0');
+    return `${m}:${s}.${ms2}`;
   };
   return { time, isRunning, start, pause, reset, resetAndStart, formatTime };
 };
