@@ -505,9 +505,17 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   const loadExerciseData = async (exId: string) => {
-    if (sessionData[exId]) return;
+    // Проверяем внутри функционального обновления, чтобы избежать проблем с замыканиями
+    setSessionData(prev => {
+        if (prev[exId]) return prev; // Данные уже загружены, не перезаписываем
+        return prev; // Временно возвращаем старое значение, загрузка будет асинхронной
+    });
+    
     const { history, note } = await api.getHistory(exId);
     setSessionData(prev => {
+        // Двойная проверка на случай, если данные загрузились между проверками
+        if (prev[exId]) return prev;
+        
         let initialSets: WorkoutSet[] = [];
         if (history.length > 0) {
             // Сортируем историю по ORDER (от старых к новым), если есть поле order
@@ -585,7 +593,15 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
   };
 
   const handleDeleteSet = (exId: string, setId: string) => {
-      setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.filter(s => s.id !== setId) } }));
+      setSessionData(prev => {
+          if (!prev[exId]) return prev;
+          const filteredSets = prev[exId].sets.filter(s => s.id !== setId);
+          // Если удалили все подходы, добавляем один пустой
+          const finalSets = filteredSets.length === 0 
+              ? [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }]
+              : filteredSets;
+          return { ...prev, [exId]: { ...prev[exId], sets: finalSets } };
+      });
   };
 
   return (
