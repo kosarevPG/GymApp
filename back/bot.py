@@ -20,6 +20,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 # Render автоматически устанавливает PORT через переменную окружения
 PORT = int(os.getenv("PORT", 8000))
+
+# Логируем URL для отладки
+logger.info(f"WEBAPP_URL from environment: {WEBAPP_URL}")
 CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 
@@ -34,6 +37,11 @@ except Exception as e:
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
+    logger.info(f"Command /start received. Using WEBAPP_URL: {WEBAPP_URL}")
+    if not WEBAPP_URL:
+        logger.error("WEBAPP_URL is not set!")
+        await message.answer("❌ Ошибка: URL фронтенда не настроен. Обратитесь к администратору.")
+        return
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🚀 Открыть GymApp", web_app=WebAppInfo(url=WEBAPP_URL))
     ]])
