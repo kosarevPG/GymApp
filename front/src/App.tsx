@@ -229,7 +229,7 @@ const Modal = ({ isOpen, onClose, title, children, headerAction }: any) => (
     {isOpen && (
       <>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-        <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl z-50 max-h-[90vh] flex flex-col">
+        <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="fixed bottom-4 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl z-50 max-h-[85vh] flex flex-col mx-4">
           <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
             <h3 className="text-lg font-semibold text-zinc-50 truncate max-w-[70%]">{title}</h3>
             <div className="flex items-center gap-2">
@@ -544,7 +544,7 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
       <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalEx(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalEx(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
         {infoModalEx && (
           <div className="space-y-4">
-             <div className="aspect-video bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" />}</div>
+             <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" />}</div>
              <div className="text-zinc-400 leading-relaxed">{infoModalEx.description || 'Описание отсутствует.'}</div>
              <div className="pt-4"><div className="text-xs text-zinc-500 uppercase font-bold tracking-wider mb-2">Группа</div><div className="px-3 py-1 bg-zinc-800 rounded-lg inline-block text-zinc-300 text-sm">{infoModalEx.muscleGroup}</div></div>
           </div>
