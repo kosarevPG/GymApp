@@ -149,6 +149,7 @@ class GoogleSheetsManager:
             rest_idx = None
             note_idx = None
             order_idx = None
+            set_group_idx = None
             
             for i, header in enumerate(headers):
                 header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
@@ -166,6 +167,9 @@ class GoogleSheetsManager:
                     note_idx = i
                 elif 'order' in header_lower and order_idx is None:
                     order_idx = i
+                elif ('set' in header_lower and 'group' in header_lower) or 'group_id' in header_lower:
+                    if set_group_idx is None:
+                        set_group_idx = i
             
             # Если не нашли автоматически, используем стандартные индексы (A-I)
             # Порядок колонок: Date, Exercise_ID, (пустая), Weight, Reps, Rest, Set_Group_ID, Note, Order
@@ -179,6 +183,8 @@ class GoogleSheetsManager:
                 reps_idx = 4  # Колонка E
             if rest_idx is None:
                 rest_idx = 5  # Колонка F
+            if set_group_idx is None:
+                set_group_idx = 6  # Колонка G
             if note_idx is None:
                 note_idx = 7  # Колонка H
             if order_idx is None:
@@ -194,7 +200,7 @@ class GoogleSheetsManager:
             
             # Собираем все записи для данного упражнения
             for row in data_rows:
-                if len(row) <= max(ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, note_idx, order_idx or 0):
+                if len(row) <= max(ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, note_idx, order_idx or 0, set_group_idx or 0):
                     continue
                 
                 # Получаем ID упражнения из строки
@@ -218,12 +224,16 @@ class GoogleSheetsManager:
                     # Получаем ORDER для сортировки
                     order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
                     
+                    # Получаем Set_Group_ID для определения суперсета
+                    set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
+                    
                     history_items.append({
                         'date': date_val,
                         'weight': weight,
                         'reps': reps,
                         'rest': rest,
                         'order': order,  # Добавляем ORDER для сортировки на фронтенде
+                        'setGroupId': set_group_id if set_group_id else None,  # Добавляем setGroupId для индикации суперсета
                     })
             
             # Сортируем сначала по дате (от новых к старым), затем по ORDER внутри каждой даты

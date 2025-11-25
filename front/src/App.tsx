@@ -38,6 +38,7 @@ interface HistoryItem {
   reps: number;
   rest: number;
   order?: number;
+  setGroupId?: string | null;  // ID группы подходов (для суперсетов)
 }
 
 interface ExerciseSessionData {
@@ -303,23 +304,69 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`История: ${exerciseName}`}>
       <div className="space-y-6">
-        {Object.entries(groupedHistory).map(([date, items]) => (
-          <div key={date}>
-            <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900 py-1 z-10">
-               <Calendar className="w-4 h-4 text-zinc-500" /><span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{date}</span>
+        {Object.entries(groupedHistory).map(([date, items]) => {
+          // Группируем подходы по setGroupId в рамках одной даты
+          const groupedBySetGroup: Array<{ setGroupId: string | null; items: HistoryItem[] }> = [];
+          let currentGroup: { setGroupId: string | null; items: HistoryItem[] } | null = null;
+          
+          items.forEach((item) => {
+            const itemSetGroupId = item.setGroupId || null;
+            if (!currentGroup || currentGroup.setGroupId !== itemSetGroupId) {
+              if (currentGroup) {
+                groupedBySetGroup.push(currentGroup);
+              }
+              currentGroup = { setGroupId: itemSetGroupId, items: [item] };
+            } else {
+              currentGroup.items.push(item);
+            }
+          });
+          if (currentGroup) {
+            groupedBySetGroup.push(currentGroup);
+          }
+          
+          return (
+            <div key={date}>
+              <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900 py-1 z-10">
+                <Calendar className="w-4 h-4 text-zinc-500" /><span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{date}</span>
+              </div>
+              <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
+                {groupedBySetGroup.map((group, groupIdx) => {
+                  const isSupersetGroup = group.setGroupId && group.setGroupId.trim() !== '';
+                  const isFirstInGroup = groupIdx === 0;
+                  const isLastInGroup = groupIdx === groupedBySetGroup.length - 1;
+                  
+                  return (
+                    <div key={groupIdx}>
+                      {isSupersetGroup && isFirstInGroup && (
+                        <div className="px-3 pt-3 pb-1 text-xs text-blue-400 font-bold flex items-center">
+                          <LinkIcon className="w-3 h-3 mr-1" /> ГРУППА ПОДХОДОВ
+                        </div>
+                      )}
+                      {group.items.map((item, idx) => {
+                        const isLastItem = idx === group.items.length - 1;
+                        const borderClass = isSupersetGroup 
+                          ? `border-l-2 border-l-blue-500 bg-blue-500/5 ${!isLastItem ? 'border-b border-zinc-800/50' : ''}`
+                          : 'border-b border-zinc-800';
+                        
+                        return (
+                          <div 
+                            key={idx} 
+                            className={`p-3 ${borderClass} ${isLastItem && isLastInGroup ? 'last:border-b-0' : ''} flex items-center justify-between`}
+                          >
+                            <div>
+                              <div className="text-lg font-medium text-zinc-200">{item.weight} <span className="text-sm text-zinc-500">кг</span> × {item.reps}</div>
+                            </div>
+                            <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">{item.rest}м</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
-              {items.map((item, idx) => (
-                <div key={idx} className="p-3 border-b border-zinc-800 last:border-0 flex items-center justify-between">
-                  <div>
-                    <div className="text-lg font-medium text-zinc-200">{item.weight} <span className="text-sm text-zinc-500">кг</span> × {item.reps}</div>
-                  </div>
-                  <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">{item.rest}м</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {history.length === 0 && <div className="text-center text-zinc-500 py-10">История пуста</div>}
       </div>
     </Modal>
