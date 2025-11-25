@@ -392,10 +392,14 @@ class GoogleSheetsManager:
                             standalone_exercises[ex_name] = []
                         standalone_exercises[ex_name].append(set_item)
                 
-                # Формируем список упражнений
+                # Формируем список упражнений с сохранением группировки суперсетов
                 exercises_list = []
                 
-                # Сначала добавляем суперсеты (группируем упражнения из одного Set_Group_ID)
+                # Создаем список для сортировки: (min_order, is_superset, items)
+                superset_groups = []  # [(min_order, [exercises])]
+                standalone_list = []  # [(min_order, exercise)]
+                
+                # Обрабатываем суперсеты
                 for set_group_id, exercises_in_superset in supersets_dict.items():
                     # Сортируем упражнения в суперсете по первому ORDER
                     sorted_exercises = sorted(
@@ -403,37 +407,57 @@ class GoogleSheetsManager:
                         key=lambda x: min(s.get("order", 0) for s in x[1]) if x[1] else 0
                     )
                     
-                    # Добавляем каждое упражнение из суперсета с идентификатором суперсета
+                    # Собираем упражнения суперсета
+                    superset_exercises = []
+                    min_order_in_superset = float('inf')
+                    
                     for ex_name, sets in sorted_exercises:
                         # Сортируем подходы по ORDER
                         sets.sort(key=lambda s: s.get("order", 0))
-                        exercises_list.append({
+                        exercise_data = {
                             "name": ex_name,
                             "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets],
                             "supersetId": set_group_id  # Добавляем идентификатор суперсета
-                        })
+                        }
+                        superset_exercises.append(exercise_data)
+                        # Находим минимальный ORDER в суперсете для сортировки
+                        if sets:
+                            min_order = min(s.get("order", 0) for s in sets)
+                            min_order_in_superset = min(min_order_in_superset, min_order)
+                    
+                    if superset_exercises:
+                        superset_groups.append((min_order_in_superset, superset_exercises))
                 
-                # Затем добавляем обычные упражнения
+                # Обрабатываем обычные упражнения
                 for ex_name, sets in standalone_exercises.items():
                     # Сортируем подходы по ORDER
                     sets.sort(key=lambda s: s.get("order", 0))
-                    exercises_list.append({
+                    min_order = min(s.get("order", 0) for s in sets) if sets else 0
+                    standalone_list.append((min_order, {
                         "name": ex_name,
                         "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets]
-                    })
+                    }))
                 
-                # Сортируем весь список по минимальному ORDER в каждом упражнении
-                exercises_list.sort(key=lambda ex: min(s.get("order", 0) for s in ex["sets"]) if ex["sets"] else 0)
+                # Сортируем суперсеты по минимальному ORDER
+                superset_groups.sort(key=lambda x: x[0])
+                # Сортируем обычные упражнения по ORDER
+                standalone_list.sort(key=lambda x: x[0])
+                
+                # Объединяем: сначала суперсеты, затем обычные упражнения, все по порядку ORDER
+                all_items = [(order, items, True) for order, items in superset_groups] + \
+                           [(order, [item], False) for order, item in standalone_list]
+                all_items.sort(key=lambda x: x[0])
+                
+                # Формируем финальный список, сохраняя группировку суперсетов
+                for order, items, is_superset_group in all_items:
+                    exercises_list.extend(items)
+                
+                logger.info(f"Date {date_val}: {len(superset_groups)} supersets, {len(standalone_list)} standalone exercises")
+                for ex in exercises_list:
+                    logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets, supersetId: {ex.get('supersetId', 'none')}")
                 
                 # Подсчитываем примерную длительность (5 минут на упражнение)
                 duration_minutes = len(exercises_list) * 5
-                
-                logger.info(f"Date {date_val}: {len(exercises_list)} exercises, total sets: {sum(len(ex['sets']) for ex in exercises_list)}")
-                for ex in exercises_list:
-                    logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets")
-                    # Логируем первый сет для проверки структуры
-                    if ex['sets'] and len(ex['sets']) > 0:
-                        logger.info(f"    First set: {ex['sets'][0]}")
                 
                 result.append({
                     "id": date_val,  # Используем дату как ID

@@ -704,7 +704,12 @@ const HistoryScreen = ({ onBack }: any) => {
                                             // Определяем позицию в суперсете
                                             const isSupersetStart = isSuperset && prevSupersetId !== ex.supersetId;
                                             const isSupersetMiddle = isSuperset && prevSupersetId === ex.supersetId && nextSupersetId === ex.supersetId;
-                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId;
+                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId && nextSupersetId !== ex.supersetId;
+                                            
+                                            // Отладочная информация (можно убрать после тестирования)
+                                            if (isSuperset) {
+                                                console.log(`Exercise "${ex.name}": supersetId=${ex.supersetId}, prev=${prevSupersetId}, next=${nextSupersetId}, start=${isSupersetStart}, middle=${isSupersetMiddle}, end=${isSupersetEnd}`);
+                                            }
                                             
                                             // Стили для визуального отображения суперсета
                                             let borderClass = "border-b border-zinc-800/50";
