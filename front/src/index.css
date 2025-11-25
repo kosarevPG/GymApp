@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Глобальные стили для скроллбара и поведения */
+body {
+    background-color: #09090b;
+    color: #fafafa;
+    overflow-x: hidden;
+}
+
+/* Скрытие скроллбара для чистого вида (Chrome/Safari/Webkit) */
+::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+}
