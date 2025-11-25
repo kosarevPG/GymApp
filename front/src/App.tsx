@@ -288,7 +288,16 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
     Object.keys(groups).forEach(date => {
       groups[date].sort((a, b) => (a.order || 0) - (b.order || 0));
     });
-    return groups;
+    // Сортируем даты от новых к старым (даты уже отсортированы на бэкенде, но на всякий случай)
+    const sortedDates = Object.keys(groups).sort((a, b) => {
+      // Даты в формате YYYY.MM.DD, сортируем в обратном порядке (от новых к старым)
+      return b.localeCompare(a);
+    });
+    const sortedGroups: Record<string, HistoryItem[]> = {};
+    sortedDates.forEach(date => {
+      sortedGroups[date] = groups[date];
+    });
+    return sortedGroups;
   }, [history]);
 
   return (
