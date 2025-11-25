@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  Search, ChevronRight, Plus, X, Info, Clock, 
+  Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
-  ChevronLeft, Settings, ArrowLeft, Link as LinkIcon, Camera, Pencil, Trophy,
+  ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
   History as HistoryIcon, Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -118,8 +118,8 @@ const useTelegram = () => {
       tg.setBackgroundColor('#09090b');
     }
   }, []);
-  const haptic = (style: any) => tg?.HapticFeedback?.impactOccurred(style);
-  const notify = (type: any) => tg?.HapticFeedback?.notificationOccurred(type);
+  const haptic = (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => tg?.HapticFeedback?.impactOccurred(style);
+  const notify = (type: 'error' | 'success' | 'warning') => tg?.HapticFeedback?.notificationOccurred(type);
   return { tg, haptic, notify };
 };
 
@@ -308,7 +308,7 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, index, onUpdate, onDelete, onComplete }: any) => {
+const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void }) => {
   const oneRM = set.weight && set.reps ? Math.round(parseFloat(set.weight) * (1 + parseInt(set.reps) / 30)) : 0;
   const delta = set.prevWeight ? (parseFloat(set.weight) - set.prevWeight) : 0;
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
@@ -339,7 +339,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const personalRecord = useMemo(() => {
     if (!exerciseData.history.length) return 0;
-    return Math.max(...exerciseData.history.map(h => h.weight));
+    return Math.max(...exerciseData.history.map((h: HistoryItem) => h.weight));
   }, [exerciseData.history]);
 
   return (
@@ -365,8 +365,8 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
         <div className="w-8" />
       </div>
       <div className="space-y-1">
-        {exerciseData.sets.map((set: any, idx: number) => (
-          <SetRow key={set.id} set={set} index={idx} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} />
+        {exerciseData.sets.map((set: any) => (
+          <SetRow key={set.id} set={set} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -384,7 +384,7 @@ const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory
     <div className="flex items-center gap-2">
       <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-          <Input placeholder="Найти..." onChange={(e: any) => onSearch(e.target.value)} className="pl-12 bg-zinc-900 w-full" />
+          <Input placeholder="Найти..." onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} className="pl-12 bg-zinc-900 w-full" />
       </div>
       <button onClick={onHistory} className="p-3 bg-zinc-900 rounded-xl text-zinc-400 hover:text-blue-500"><HistoryIcon className="w-6 h-6" /></button>
     </div>
@@ -427,7 +427,7 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
                   ref={searchInputRef}
                   placeholder="Найти..." 
                   value={searchQuery}
-                  onChange={(e: any) => onSearch(e.target.value)} 
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} 
                   className="pl-8 bg-zinc-900 w-full h-9 text-sm" 
                 />
               </div>
@@ -504,7 +504,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
         } else {
             initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
         }
-        return { ...prev, [exId]: { exercise: allExercises.find(e => e.id === exId)!, note: note || '', history, sets: initialSets } };
+        return { ...prev, [exId]: { exercise: allExercises.find((e: Exercise) => e.id === exId)!, note: note || '', history, sets: initialSets } };
     });
   };
 
@@ -539,7 +539,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
     }
   };
 
-  const handleUpdateSet = (exId: string, setId: string, field: any, val: any) => {
+  const handleUpdateSet = (exId: string, setId: string, field: string, val: string) => {
     setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } }));
   };
   
@@ -563,7 +563,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
         {activeExercises.map(exId => {
             const data = sessionData[exId];
             if (!data) return <div key={exId} className="h-40 bg-zinc-900 rounded-2xl animate-pulse" />;
-            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid, f, v) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid) => handleDeleteSet(exId, sid)} onCompleteSet={(sid) => handleCompleteSet(exId, sid)} onNoteChange={(val) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
+            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
         })}
       </div>
       <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={onBack} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
@@ -673,10 +673,10 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
     const [name, setName] = useState('');
     const [group, setGroup] = useState('');
     const [image, setImage] = useState('');
-    const fileRef = useRef<any>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
     useEffect(() => { if(exercise) { setName(exercise.name); setGroup(exercise.muscleGroup); setImage(exercise.imageUrl || ''); } }, [exercise]);
     
-    const handleFile = (e: any) => {
+    const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) { const r = new FileReader(); r.onloadend = () => setImage(r.result as string); r.readAsDataURL(file); }
     };
@@ -688,7 +688,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     {image ? <img src={image} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото</span></div>}
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
-                <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={name} onChange={(e:any) => setName(e.target.value)} /></div>
+                <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} /></div>
                 <div>
                     <label className="text-sm text-zinc-400 mb-1 block">Группа</label>
                     <div className="flex flex-wrap gap-2">{groups.map((g: string) => <button key={g} onClick={() => setGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${group === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div>
@@ -702,7 +702,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
 // --- MAIN ---
 
 const App = () => {
-  const { tg, haptic, notify } = useTelegram();
+  const { haptic, notify } = useTelegram();
   const { sessionId, incrementOrder } = useSession();
   const [screen, setScreen] = useState<Screen>('home');
   const [groups, setGroups] = useState<string[]>([]);
@@ -730,7 +730,7 @@ const App = () => {
       if (newEx) { setAllExercises(p => [...p, newEx]); setIsCreateModalOpen(false); setNewName(''); notify('success'); }
   };
 
-  const handleUpdate = async (id: string, updates: any) => {
+  const handleUpdate = async (id: string, updates: Partial<Exercise>) => {
       setAllExercises(p => p.map(ex => ex.id === id ? { ...ex, ...updates } : ex));
       await api.updateExercise(id, updates);
       notify('success');
@@ -745,7 +745,7 @@ const App = () => {
       
       <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Новое упражнение">
          <div className="space-y-4">
-             <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={newName} onChange={(e:any) => setNewName(e.target.value)} placeholder="Например: Отжимания" /></div>
+             <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={newName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)} placeholder="Например: Отжимания" /></div>
              <div><label className="text-sm text-zinc-400 mb-1 block">Группа</label><div className="flex flex-wrap gap-2">{groups.map(g => <button key={g} onClick={() => setNewGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${newGroup === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div></div>
              <Button onClick={handleCreate} className="w-full h-12 mt-4">Создать</Button>
          </div>
