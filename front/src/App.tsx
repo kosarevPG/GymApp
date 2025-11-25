@@ -329,7 +329,15 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         {set.completed && <Check className="w-6 h-6 text-white" />}
       </button>
       <div className="flex flex-col gap-1">
-        <input type="number" inputMode="decimal" placeholder="0" value={set.weight} onChange={e => onUpdate(set.id, 'weight', e.target.value)} className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" />
+        <input 
+          type="number" 
+          inputMode="decimal" 
+          placeholder="0" 
+          value={set.weight} 
+          onChange={e => onUpdate(set.id, 'weight', e.target.value)}
+          onFocus={e => e.target.select()}
+          className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+        />
         {(oneRM > 0 || set.prevWeight) && (
           <div className="flex justify-between px-1 text-[10px]">
             {oneRM > 0 && <span className="text-zinc-500">1PM:{oneRM}</span>}
@@ -337,8 +345,24 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
           </div>
         )}
       </div>
-      <input type="tel" inputMode="numeric" placeholder="0" value={set.reps} onChange={e => onUpdate(set.id, 'reps', e.target.value)} className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" />
-      <input type="number" inputMode="decimal" placeholder="0" value={set.rest} onChange={e => onUpdate(set.id, 'rest', e.target.value)} className="w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" />
+      <input 
+        type="tel" 
+        inputMode="numeric" 
+        placeholder="0" 
+        value={set.reps} 
+        onChange={e => onUpdate(set.id, 'reps', e.target.value)}
+        onFocus={e => e.target.select()}
+        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+      />
+      <input 
+        type="number" 
+        inputMode="decimal" 
+        placeholder="0" 
+        value={set.rest} 
+        onChange={e => onUpdate(set.id, 'rest', e.target.value)}
+        onFocus={e => e.target.select()}
+        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+      />
       <button onClick={() => onDelete(set.id)} className="w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
     </motion.div>
   );
