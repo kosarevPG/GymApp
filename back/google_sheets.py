@@ -340,6 +340,11 @@ class GoogleSheetsManager:
                 order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
                 set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
                 
+                # Логируем set_group_id для отладки (только первые несколько записей)
+                if len(days[date_val]["exercises"]) < 3:
+                    raw_value = row[set_group_idx] if set_group_idx < len(row) else 'N/A'
+                    logger.info(f"  Set data: ex='{ex_name}', set_group_id='{set_group_id}', order={order}, raw_value='{raw_value}', set_group_idx={set_group_idx}")
+                
                 # Добавляем подход в общий список (для сортировки по ORDER)
                 days[date_val]["exercises"].append({
                     "exerciseName": ex_name,
