@@ -3,7 +3,7 @@ import {
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
-  History as HistoryIcon, Activity
+  History as HistoryIcon, Activity, Link as LinkIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -507,7 +507,9 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
   );
 };
 
-const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incrementOrder, haptic, notify }: any) => {
+const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, haptic, notify }: any) => {
+  // Генерируем локальный ID при открытии экрана тренировки
+  const [localGroupId] = useState(() => crypto.randomUUID());
   const timer = useTimer();
   const [activeExercises, setActiveExercises] = useState<string[]>([initialExercise.id]);
   const [sessionData, setSessionData] = useState<Record<string, ExerciseSessionData>>({});
@@ -580,7 +582,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
             reps: parseInt(set.reps),
             rest: parseFloat(set.rest) || 0,
             note: sessionData[exId].note,
-            set_group_id: sessionId,
+            set_group_id: localGroupId, // Используем локальный ID для группировки упражнений на этом экране
             order
         });
         notify('success');
@@ -813,7 +815,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
 
 const App = () => {
   const { haptic, notify } = useTelegram();
-  const { sessionId, incrementOrder } = useSession();
+  const { incrementOrder } = useSession();
   const [screen, setScreen] = useState<Screen>('home');
   const [groups, setGroups] = useState<string[]>([]);
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
@@ -851,7 +853,7 @@ const App = () => {
       {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
       {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} onEditExercise={(ex: Exercise) => setExerciseToEdit(ex)} />}
-      {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} sessionId={sessionId} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} />}
+      {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} />}
       
       <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Новое упражнение">
          <div className="space-y-4">

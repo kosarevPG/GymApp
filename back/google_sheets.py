@@ -424,6 +424,19 @@ class GoogleSheetsManager:
                 
                 # Обрабатываем суперсеты
                 for set_group_id, exercises_in_superset in supersets_dict.items():
+                    # Проверяем: если в группе только одно упражнение, это не суперсет
+                    if len(exercises_in_superset) <= 1:
+                        # Обрабатываем как обычное упражнение (без supersetId)
+                        for ex_name, sets in exercises_in_superset.items():
+                            sets.sort(key=lambda s: s.get("order", 0))
+                            min_order = min(s.get("order", 0) for s in sets) if sets else 0
+                            standalone_list.append((min_order, {
+                                "name": ex_name,
+                                "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets]
+                            }))
+                        continue
+                    
+                    # Это настоящий суперсет (2+ упражнения)
                     # Сортируем упражнения в суперсете по первому ORDER
                     sorted_exercises = sorted(
                         exercises_in_superset.items(),
@@ -440,7 +453,7 @@ class GoogleSheetsManager:
                         exercise_data = {
                             "name": ex_name,
                             "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets],
-                            "supersetId": set_group_id  # Добавляем идентификатор суперсета
+                            "supersetId": set_group_id  # Добавляем идентификатор суперсета только для настоящих суперсетов
                         }
                         superset_exercises.append(exercise_data)
                         # Находим минимальный ORDER в суперсете для сортировки
