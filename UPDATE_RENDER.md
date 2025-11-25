@@ -16,9 +16,10 @@
 
 1. В разделе **Settings** найдите секцию **Build & Deploy**
 2. Обновите команды:
-   - **Build Command**: `cd back && pip install -r requirements.txt`
+   - **Build Command**: `cd back && chmod +x build.sh && ./build.sh`
    - **Start Command**: `cd back && python bot.py`
-3. Сохраните изменения
+3. Убедитесь, что **Python Version** установлен на `3.11.0` (или оставьте пустым, если используется `runtime.txt`)
+4. Сохраните изменения
 
 ### Шаг 3: Проверка переменных окружения
 

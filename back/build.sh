@@ -4,6 +4,9 @@ set -e
 # Обновляем pip
 pip install --upgrade pip setuptools wheel
 
-# Устанавливаем зависимости, предпочитая бинарные пакеты
-pip install --upgrade --only-binary :all: -r requirements.txt || pip install -r requirements.txt
+# Устанавливаем pydantic с предкомпилированными wheels
+pip install --only-binary pydantic,pydantic-core pydantic==2.5.3
+
+# Устанавливаем остальные зависимости
+pip install -r requirements.txt
 
