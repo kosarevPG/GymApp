@@ -379,8 +379,9 @@ class GoogleSheetsManager:
                         "order": set_data.get("order", 0)
                     }
                     
-                    if set_group_id:
+                    if set_group_id and set_group_id.strip():
                         # Это часть суперсета
+                        logger.debug(f"Found superset set: exercise='{ex_name}', set_group_id='{set_group_id}', order={set_item['order']}")
                         if set_group_id not in supersets_dict:
                             supersets_dict[set_group_id] = {}
                         if ex_name not in supersets_dict[set_group_id]:
@@ -391,6 +392,12 @@ class GoogleSheetsManager:
                         if ex_name not in standalone_exercises:
                             standalone_exercises[ex_name] = []
                         standalone_exercises[ex_name].append(set_item)
+                
+                logger.info(f"Supersets dict: {len(superset_groups)} groups")
+                if supersets_dict:
+                    logger.info(f"Supersets dict keys: {list(superset_groups.keys())}")
+                    for sg_id, exercises in supersets_dict.items():
+                        logger.info(f"  Superset '{sg_id}': {list(exercises.keys())}")
                 
                 # Формируем список упражнений с сохранением группировки суперсетов
                 exercises_list = []
@@ -454,7 +461,10 @@ class GoogleSheetsManager:
                 
                 logger.info(f"Date {date_val}: {len(superset_groups)} supersets, {len(standalone_list)} standalone exercises")
                 for ex in exercises_list:
-                    logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets, supersetId: {ex.get('supersetId', 'none')}")
+                    superset_id = ex.get('supersetId', 'none')
+                    logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets, supersetId: {superset_id}")
+                    if superset_id != 'none':
+                        logger.info(f"    -> Part of superset: {superset_id}")
                 
                 # Подсчитываем примерную длительность (5 минут на упражнение)
                 duration_minutes = len(exercises_list) * 5
