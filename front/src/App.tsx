@@ -143,6 +143,15 @@ const useTimer = () => {
     clearInterval(intervalRef.current);
     setTime(0);
   };
+  const resetAndStart = () => {
+    // Сначала останавливаем и очищаем
+    clearInterval(intervalRef.current);
+    setTime(0);
+    // Затем сразу запускаем
+    setIsRunning(true);
+    const startTime = Date.now();
+    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 50);
+  };
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
@@ -150,7 +159,7 @@ const useTimer = () => {
     const ms2 = Math.floor((ms % 1000) / 10).toString().padStart(2, '0');
     return `${m}:${s}.${ms2}`;
   };
-  return { time, isRunning, start, pause, reset, formatTime };
+  return { time, isRunning, start, pause, reset, resetAndStart, formatTime };
 };
 
 const useSession = () => {
@@ -518,9 +527,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
     haptic('medium');
     // Optimistic
     setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true } : s) } }));
-    // Сбрасываем таймер и сразу запускаем заново
-    timer.reset();
-    timer.start();
+    // Сбрасываем таймер и сразу запускаем заново (кнопка останется "Стоп")
+    timer.resetAndStart();
 
     try {
         const order = incrementOrder();
