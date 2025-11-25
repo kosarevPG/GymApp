@@ -874,7 +874,34 @@ const App = () => {
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState('');
 
-  useEffect(() => { api.getInit().then(d => { setGroups(d.groups); setAllExercises(d.exercises); }); }, []);
+  // Порядок отображения групп мышц
+  const groupOrder = ['Спина', 'Ноги', 'Грудь', 'Плечи', 'Трицепс', 'Бицепс', 'Пресс', 'Кардио'];
+  
+  const sortGroups = (groupsList: string[]): string[] => {
+    const sorted: string[] = [];
+    const remaining = [...groupsList];
+    
+    // Сначала добавляем группы в указанном порядке
+    groupOrder.forEach(groupName => {
+      const index = remaining.indexOf(groupName);
+      if (index !== -1) {
+        sorted.push(groupName);
+        remaining.splice(index, 1);
+      }
+    });
+    
+    // Затем добавляем оставшиеся группы (если есть новые, не указанные в порядке)
+    sorted.push(...remaining);
+    
+    return sorted;
+  };
+
+  useEffect(() => { 
+    api.getInit().then(d => { 
+      setGroups(sortGroups(d.groups)); 
+      setAllExercises(d.exercises); 
+    }); 
+  }, []);
 
   const filteredExercises = useMemo(() => {
     let list = allExercises;
