@@ -42,8 +42,15 @@ async def cmd_start(message: Message):
         logger.error("WEBAPP_URL is not set!")
         await message.answer("❌ Ошибка: URL фронтенда не настроен. Обратитесь к администратору.")
         return
+    
+    # Добавляем параметр версии для обхода кеша Telegram
+    import time
+    cache_buster = int(time.time())
+    webapp_url_with_version = f"{WEBAPP_URL.rstrip('/')}?v={cache_buster}"
+    logger.info(f"WebApp URL with cache buster: {webapp_url_with_version}")
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🚀 Открыть GymApp", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton(text="🚀 Открыть GymApp", web_app=WebAppInfo(url=webapp_url_with_version))
     ]])
     await message.answer("Привет! Жми кнопку, чтобы начать тренировку 👇", reply_markup=kb)
 
