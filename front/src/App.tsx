@@ -117,6 +117,14 @@ const useTelegram = () => {
     if (tg) {
       tg.setHeaderColor('#09090b');
       tg.setBackgroundColor('#09090b');
+      // Запрашиваем полноэкранный режим, если доступен
+      if (typeof tg.requestFullscreen === 'function') {
+        try {
+          tg.requestFullscreen();
+        } catch (e) {
+          // Игнорируем ошибки, если метод недоступен
+        }
+      }
     }
   }, []);
   const haptic = (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => tg?.HapticFeedback?.impactOccurred(style);
@@ -133,7 +141,7 @@ const useTimer = () => {
     if (isRunning) return;
     setIsRunning(true);
     const startTime = Date.now() - time;
-    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 50);
+    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 1000);
   };
   const pause = () => {
     setIsRunning(false);
@@ -151,16 +159,32 @@ const useTimer = () => {
     // Затем сразу запускаем
     setIsRunning(true);
     const startTime = Date.now();
-    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 50);
+    intervalRef.current = setInterval(() => setTime(Date.now() - startTime), 1000);
   };
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
     const s = (totalSeconds % 60).toString().padStart(2, '0');
-    const ms2 = Math.floor((ms % 1000) / 10).toString().padStart(2, '0');
-    return `${m}:${s}.${ms2}`;
+    return `${m}:${s}`;
   };
   return { time, isRunning, start, pause, reset, resetAndStart, formatTime };
+};
+
+// Хук для debounce значения
+const useDebounce = <T,>(value: T, delay: number): T => {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
 };
 
 const useSession = () => {
@@ -468,12 +492,13 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
 
 // --- SCREENS ---
 
-const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory }: any) => (
+const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory, searchQuery }: any) => {
+  return (
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 space-y-6">
     <div className="flex items-center gap-2">
       <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-          <Input placeholder="Найти..." onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} className="pl-12 bg-zinc-900 w-full" />
+          <Input placeholder="Найти..." value={searchQuery || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} className="pl-12 bg-zinc-900 w-full" />
       </div>
       <button onClick={onHistory} className="p-3 bg-zinc-900 rounded-xl text-zinc-400 hover:text-blue-500"><HistoryIcon className="w-6 h-6" /></button>
     </div>
@@ -488,7 +513,23 @@ const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory
     </div>
     <Button onClick={onAllExercises} variant="secondary" className="w-full h-14 text-lg">Все упражнения</Button>
   </motion.div>
-);
+  );
+};
+
+// Мемоизированный компонент карточки упражнения
+const ExerciseCard = React.memo(({ ex, onSelectExercise, onInfoClick }: { ex: Exercise; onSelectExercise: (ex: Exercise) => void; onInfoClick: (ex: Exercise) => void }) => (
+  <div className="flex items-center p-2 rounded-2xl hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition-all">
+    <div onClick={(e) => { e.stopPropagation(); onInfoClick(ex); }} className="w-14 h-14 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden cursor-pointer active:scale-90 transition-transform relative group">
+      {ex.imageUrl ? <img src={ex.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-600"><Info /></div>}
+      <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Settings className="w-5 h-5 text-white" /></div>
+    </div>
+    <div onClick={() => onSelectExercise(ex)} className="flex-1 px-4 cursor-pointer">
+      <div className="font-medium text-zinc-100 text-[17px]">{ex.name}</div>
+      <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
+    </div>
+    <button onClick={() => onSelectExercise(ex)} className="p-2 text-zinc-600"><ChevronRight className="w-5 h-5" /></button>
+  </div>
+), (prevProps, nextProps) => prevProps.ex.id === nextProps.ex.id && prevProps.ex.name === nextProps.ex.name && prevProps.ex.muscleGroup === nextProps.ex.muscleGroup && prevProps.ex.imageUrl === nextProps.ex.imageUrl);
 
 const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, onEditExercise, searchQuery, onSearch }: any) => {
   const [infoModalEx, setInfoModalEx] = useState<Exercise | null>(null);
@@ -528,17 +569,7 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
       </div>
       <div className="p-4 space-y-2 pb-24">
         {exercises.map((ex: Exercise) => (
-          <div key={ex.id} className="flex items-center p-2 rounded-2xl hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition-all">
-            <div onClick={(e) => { e.stopPropagation(); setInfoModalEx(ex); }} className="w-14 h-14 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden cursor-pointer active:scale-90 transition-transform relative group">
-              {ex.imageUrl ? <img src={ex.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-600"><Info /></div>}
-              <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Settings className="w-5 h-5 text-white" /></div>
-            </div>
-            <div onClick={() => onSelectExercise(ex)} className="flex-1 px-4 cursor-pointer">
-              <div className="font-medium text-zinc-100 text-[17px]">{ex.name}</div>
-              <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
-            </div>
-            <button onClick={() => onSelectExercise(ex)} className="p-2 text-zinc-600"><ChevronRight className="w-5 h-5" /></button>
-          </div>
+          <ExerciseCard key={ex.id} ex={ex} onSelectExercise={onSelectExercise} onInfoClick={setInfoModalEx} />
         ))}
       </div>
       <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalEx(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalEx(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
@@ -877,39 +908,45 @@ const App = () => {
   // Порядок отображения групп мышц
   const groupOrder = ['Спина', 'Ноги', 'Грудь', 'Плечи', 'Трицепс', 'Бицепс', 'Пресс', 'Кардио'];
   
-  const sortGroups = (groupsList: string[]): string[] => {
-    const sorted: string[] = [];
-    const remaining = [...groupsList];
-    
-    // Сначала добавляем группы в указанном порядке
-    groupOrder.forEach(groupName => {
-      const index = remaining.indexOf(groupName);
-      if (index !== -1) {
-        sorted.push(groupName);
-        remaining.splice(index, 1);
-      }
-    });
-    
-    // Затем добавляем оставшиеся группы (если есть новые, не указанные в порядке)
-    sorted.push(...remaining);
-    
-    return sorted;
-  };
+  // Мемоизированная функция сортировки групп
+  const sortGroups = useMemo(() => {
+    return (groupsList: string[]): string[] => {
+      const sorted: string[] = [];
+      const remaining = [...groupsList];
+      
+      // Сначала добавляем группы в указанном порядке
+      groupOrder.forEach(groupName => {
+        const index = remaining.indexOf(groupName);
+        if (index !== -1) {
+          sorted.push(groupName);
+          remaining.splice(index, 1);
+        }
+      });
+      
+      // Затем добавляем оставшиеся группы (если есть новые, не указанные в порядке)
+      sorted.push(...remaining);
+      
+      return sorted;
+    };
+  }, []);
 
   useEffect(() => { 
     api.getInit().then(d => { 
       setGroups(sortGroups(d.groups)); 
       setAllExercises(d.exercises); 
     }); 
-  }, []);
+  }, [sortGroups]);
+
+  // Debounce для поиска (300 мс)
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const filteredExercises = useMemo(() => {
     let list = allExercises;
     if (selectedGroup) list = list.filter(ex => ex.muscleGroup === selectedGroup);
-    if (searchQuery) list = list.filter(ex => ex.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    if (debouncedSearchQuery) list = list.filter(ex => ex.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()));
     // Сортируем по имени (на случай, если бэкенд не отсортировал)
     return list.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
-  }, [allExercises, selectedGroup, searchQuery]);
+  }, [allExercises, selectedGroup, debouncedSearchQuery]);
 
   const handleCreate = async () => {
       if (!newName || !newGroup) return;
@@ -925,7 +962,7 @@ const App = () => {
 
   return (
     <div className="bg-zinc-950 min-h-screen text-zinc-50 font-sans selection:bg-blue-500/30">
-      {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} />}
+      {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} searchQuery={searchQuery} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
       {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} onEditExercise={(ex: Exercise) => setExerciseToEdit(ex)} />}
       {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} />}

@@ -55,10 +55,58 @@ class GoogleSheetsManager:
             self.log_sheet = self.spreadsheet.worksheet('LOG')
             self.exercises_sheet = self.spreadsheet.worksheet('EXERCISES')
             
+            # Кэш для последних строк LOG листа
+            self._log_cache = None
+            self._log_cache_timestamp = None
+            self._log_cache_ttl = 300  # 5 минут в секундах
+            
             logger.info("Google Sheets connected successfully")
         except Exception as e:
             logger.critical(f"GSheets Connection Error: {e}")
             raise
+    
+    def _get_log_values_cached(self, max_rows: int = 1000):
+        """Получить последние N строк LOG листа с кэшированием"""
+        import time
+        current_time = time.time()
+        
+        # Проверяем, актуален ли кэш
+        if (self._log_cache is not None and 
+            self._log_cache_timestamp is not None and 
+            (current_time - self._log_cache_timestamp) < self._log_cache_ttl):
+            return self._log_cache
+        
+        # Читаем данные из Google Sheets
+        try:
+            # Получаем количество строк
+            all_values = self.log_sheet.get_all_values()
+            
+            # Берем последние max_rows строк (или все, если меньше)
+            if len(all_values) > max_rows:
+                # Берем заголовок + последние max_rows строк
+                cached_values = [all_values[0]] + all_values[-max_rows:]
+            else:
+                cached_values = all_values
+            
+            # Обновляем кэш
+            self._log_cache = cached_values
+            self._log_cache_timestamp = current_time
+            
+            logger.info(f"LOG cache updated: {len(cached_values)} rows (last {max_rows} rows)")
+            return cached_values
+        except Exception as e:
+            logger.error(f"Error reading LOG sheet: {e}")
+            # В случае ошибки возвращаем старый кэш, если есть
+            if self._log_cache is not None:
+                logger.warning("Using stale cache due to error")
+                return self._log_cache
+            return []
+    
+    def _invalidate_log_cache(self):
+        """Инвалидировать кэш LOG листа (вызывать при записи новых данных)"""
+        self._log_cache = None
+        self._log_cache_timestamp = None
+        logger.debug("LOG cache invalidated")
 
     def get_all_exercises(self) -> Dict:
         try:
@@ -127,6 +175,8 @@ class GoogleSheetsManager:
                 DataParser.to_int(data.get('order'))
             ]
             self.log_sheet.append_row(row)
+            # Инвалидируем кэш при записи новых данных
+            self._invalidate_log_cache()
             return True
         except Exception as e:
             logger.error(f"Save set error: {e}")
@@ -134,8 +184,8 @@ class GoogleSheetsManager:
 
     def get_exercise_history(self, exercise_id: str, limit: int = 50) -> Dict:
         try:
-            # Используем get_all_values() вместо get_all_records() для работы с дублирующимися заголовками
-            all_values = self.log_sheet.get_all_values()
+            # Используем кэшированное чтение вместо get_all_values() для производительности
+            all_values = self._get_log_values_cached(max_rows=1000)
             if not all_values or len(all_values) < 2:
                 return {"history": [], "note": ""}
             
