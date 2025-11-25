@@ -907,7 +907,8 @@ const App = () => {
     let list = allExercises;
     if (selectedGroup) list = list.filter(ex => ex.muscleGroup === selectedGroup);
     if (searchQuery) list = list.filter(ex => ex.name.toLowerCase().includes(searchQuery.toLowerCase()));
-    return list;
+    // Сортируем по имени (на случай, если бэкенд не отсортировал)
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
   }, [allExercises, selectedGroup, searchQuery]);
 
   const handleCreate = async () => {

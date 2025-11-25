@@ -80,6 +80,9 @@ class GoogleSheetsManager:
                     'imageUrl': r.get('Image_URL', '')
                 })
             
+            # Сортируем упражнения по имени (Name)
+            exercises.sort(key=lambda x: x.get('name', '').lower())
+            
             return {"groups": sorted(list(groups)), "exercises": exercises}
         except Exception as e:
             logger.error(f"Get exercises error: {e}")
