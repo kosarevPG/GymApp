@@ -666,20 +666,7 @@ const HistoryScreen = ({ onBack }: any) => {
     const [history, setHistory] = useState<GlobalWorkoutSession[]>([]);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     useEffect(() => { 
-        api.getGlobalHistory().then(data => {
-            console.log('History data received:', data);
-            if (data && data.length > 0) {
-                console.log('First session:', data[0]);
-                if (data[0].exercises) {
-                    console.log('First session exercises:', data[0].exercises);
-                    if (data[0].exercises.length > 0) {
-                        console.log('First exercise:', data[0].exercises[0]);
-                        console.log('First exercise sets:', data[0].exercises[0].sets);
-                    }
-                }
-            }
-            setHistory(data);
-        });
+        api.getGlobalHistory().then(data => setHistory(data));
     }, []);
 
     return (
