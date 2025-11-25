@@ -704,7 +704,7 @@ const HistoryScreen = ({ onBack }: any) => {
                                             // Определяем позицию в суперсете
                                             const isSupersetStart = isSuperset && prevSupersetId !== ex.supersetId;
                                             const isSupersetMiddle = isSuperset && prevSupersetId === ex.supersetId && nextSupersetId === ex.supersetId;
-                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId && nextSupersetId !== ex.supersetId;
+                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId;
                                             
                                             // Отладочная информация (можно убрать после тестирования)
                                             if (isSuperset) {
