@@ -503,6 +503,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
   const [activeExercises, setActiveExercises] = useState<string[]>([initialExercise.id]);
   const [sessionData, setSessionData] = useState<Record<string, ExerciseSessionData>>({});
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [supersetSearchQuery, setSupersetSearchQuery] = useState('');
 
   const loadExerciseData = async (exId: string) => {
     // Проверяем внутри функционального обновления, чтобы избежать проблем с замыканиями
@@ -615,8 +616,46 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, sessionId, incre
         })}
       </div>
       <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={onBack} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
-      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Добавить в суперсет">
-        <div className="space-y-2">{allExercises.map((ex: Exercise) => (<div key={ex.id} onClick={() => { if (!activeExercises.includes(ex.id)) setActiveExercises([...activeExercises, ex.id]); setIsAddModalOpen(false); }} className="flex items-center p-3 bg-zinc-800/50 rounded-xl border border-zinc-800 cursor-pointer"><div className="font-medium text-zinc-200">{ex.name}</div>{activeExercises.includes(ex.id) && <Check className="ml-auto text-green-500 w-5 h-5"/>}</div>))}</div>
+      <Modal isOpen={isAddModalOpen} onClose={() => { setIsAddModalOpen(false); setSupersetSearchQuery(''); }} title="Добавить в суперсет">
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <Input 
+              placeholder="Поиск упражнения..." 
+              value={supersetSearchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSupersetSearchQuery(e.target.value)}
+              onFocus={(e: React.FocusEvent<HTMLInputElement>) => e.target.select()}
+              className="pl-10 bg-zinc-900 w-full" 
+            />
+          </div>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {allExercises
+              .filter((ex: Exercise) => 
+                ex.name.toLowerCase().includes(supersetSearchQuery.toLowerCase())
+              )
+              .map((ex: Exercise) => (
+                <div 
+                  key={ex.id} 
+                  onClick={() => { 
+                    if (!activeExercises.includes(ex.id)) {
+                      setActiveExercises([...activeExercises, ex.id]);
+                    }
+                    setIsAddModalOpen(false);
+                    setSupersetSearchQuery('');
+                  }} 
+                  className="flex items-center p-3 bg-zinc-800/50 rounded-xl border border-zinc-800 cursor-pointer hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="font-medium text-zinc-200">{ex.name}</div>
+                  {activeExercises.includes(ex.id) && <Check className="ml-auto text-green-500 w-5 h-5"/>}
+                </div>
+              ))}
+            {allExercises.filter((ex: Exercise) => 
+              ex.name.toLowerCase().includes(supersetSearchQuery.toLowerCase())
+            ).length === 0 && (
+              <div className="text-center text-zinc-500 py-4 text-sm">Упражнения не найдены</div>
+            )}
+          </div>
+        </div>
       </Modal>
       <div className="fixed bottom-6 left-6 z-20"><button onClick={onBack} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
     </div>
