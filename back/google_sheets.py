@@ -226,8 +226,17 @@ class GoogleSheetsManager:
                         'order': order,  # Добавляем ORDER для сортировки на фронтенде
                     })
             
-            # Сортируем по ORDER от меньшего к большему (от старых к новым)
-            history_items.sort(key=lambda x: x.get('order', 0))
+            # Сортируем сначала по дате (от новых к старым), затем по ORDER внутри каждой даты
+            # Преобразуем дату в формат для сортировки (YYYY.MM.DD)
+            def sort_key(item):
+                date_str = item.get('date', '')
+                order = item.get('order', 0)
+                # Если дата в формате YYYY.MM.DD, она уже сортируется лексикографически
+                # Инвертируем для сортировки от новых к старым (reverse=True)
+                return (date_str, order)
+            
+            # Сортируем по дате (от новых к старым), затем по ORDER
+            history_items.sort(key=sort_key, reverse=True)
             
             # Ограничиваем количество записей
             if len(history_items) > limit:
