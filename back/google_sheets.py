@@ -403,13 +403,14 @@ class GoogleSheetsManager:
                         key=lambda x: min(s.get("order", 0) for s in x[1]) if x[1] else 0
                     )
                     
-                    # Добавляем каждое упражнение из суперсета
+                    # Добавляем каждое упражнение из суперсета с идентификатором суперсета
                     for ex_name, sets in sorted_exercises:
                         # Сортируем подходы по ORDER
                         sets.sort(key=lambda s: s.get("order", 0))
                         exercises_list.append({
                             "name": ex_name,
-                            "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets]
+                            "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets],
+                            "supersetId": set_group_id  # Добавляем идентификатор суперсета
                         })
                 
                 # Затем добавляем обычные упражнения

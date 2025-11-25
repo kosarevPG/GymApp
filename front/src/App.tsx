@@ -709,19 +709,47 @@ const HistoryScreen = ({ onBack }: any) => {
                                 >
                                     {w.exercises && w.exercises.length > 0 ? (
                                         w.exercises.map((ex: any, i: number) => {
-                                            console.log(`Exercise ${i}:`, ex.name, 'sets:', ex.sets);
+                                            // Определяем, является ли упражнение частью суперсета
+                                            const isSuperset = !!ex.supersetId;
+                                            const prevSupersetId = i > 0 ? w.exercises[i - 1]?.supersetId : null;
+                                            const nextSupersetId = i < w.exercises.length - 1 ? w.exercises[i + 1]?.supersetId : null;
+                                            
+                                            // Определяем позицию в суперсете
+                                            const isSupersetStart = isSuperset && prevSupersetId !== ex.supersetId;
+                                            const isSupersetMiddle = isSuperset && prevSupersetId === ex.supersetId && nextSupersetId === ex.supersetId;
+                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId;
+                                            
+                                            // Стили для визуального отображения суперсета
+                                            let borderClass = "border-b border-zinc-800/50";
+                                            let paddingClass = "p-4";
+                                            let supersetIndicator = null;
+                                            
+                                            if (isSuperset) {
+                                                // Синяя линия слева для суперсета
+                                                borderClass = "border-l-2 border-l-blue-500 border-b border-zinc-800/50 bg-blue-500/5";
+                                                if (isSupersetStart) {
+                                                    // Показываем метку "СУПЕРСЕТ" только в начале
+                                                    supersetIndicator = (
+                                                        <div className="text-xs text-blue-400 font-bold mb-2 flex items-center">
+                                                            <LinkIcon className="w-3 h-3 mr-1" /> СУПЕРСЕТ
+                                                        </div>
+                                                    );
+                                                }
+                                                // Убираем нижнюю границу между упражнениями в суперсете
+                                                if (isSupersetMiddle) {
+                                                    borderClass = "border-l-2 border-l-blue-500 border-b-0 bg-blue-500/5";
+                                                }
+                                            }
+                                            
                                             return (
-                                                <div key={i} className="p-4 border-b border-zinc-800/50 last:border-0">
+                                                <div key={i} className={`${paddingClass} ${borderClass} last:border-b-0`}>
+                                                    {supersetIndicator}
                                                     <div className="font-medium text-zinc-300 mb-2">{ex.name}</div>
                                                     {ex.sets && Array.isArray(ex.sets) && ex.sets.length > 0 ? (
                                                         <div className="space-y-1">
                                                             {ex.sets.map((s: any, j: number) => {
-                                                                console.log(`Set ${j}:`, s);
                                                                 const weight = typeof s.weight === 'number' ? s.weight : (s.weight ? parseFloat(String(s.weight)) : 0);
                                                                 const reps = typeof s.reps === 'number' ? s.reps : (s.reps ? parseInt(String(s.reps)) : 0);
-                                                                if (weight === 0 && reps === 0) {
-                                                                    console.warn(`Set ${j} has zero values:`, s);
-                                                                }
                                                                 return (
                                                                     <div key={j} className="flex justify-between text-sm text-zinc-400 px-2 py-1 bg-zinc-800/30 rounded">
                                                                         <span>#{j+1} {weight}кг</span>
@@ -731,19 +759,13 @@ const HistoryScreen = ({ onBack }: any) => {
                                                             })}
                                                         </div>
                                                     ) : (
-                                                        <div className="text-xs text-zinc-500">
-                                                            Нет подходов. 
-                                                            <br />ex.sets type: {typeof ex.sets}, 
-                                                            <br />isArray: {Array.isArray(ex.sets)}, 
-                                                            <br />length: {ex.sets ? (Array.isArray(ex.sets) ? ex.sets.length : 'not array') : 'null'},
-                                                            <br />value: {ex.sets ? JSON.stringify(ex.sets).substring(0, 100) : 'null'}
-                                                        </div>
+                                                        <div className="text-xs text-zinc-500">Нет подходов</div>
                                                     )}
                                                 </div>
                                             );
                                         })
                                     ) : (
-                                        <div className="p-4 text-center text-zinc-500 text-sm">Нет упражнений (exercises: {w.exercises ? JSON.stringify(w.exercises) : 'null'})</div>
+                                        <div className="p-4 text-center text-zinc-500 text-sm">Нет упражнений</div>
                                     )}
                                 </motion.div>
                             )}
