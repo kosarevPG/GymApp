@@ -398,11 +398,13 @@ class GoogleSheetsManager:
                             standalone_exercises[ex_name] = []
                         standalone_exercises[ex_name].append(set_item)
                 
-                logger.info(f"Supersets dict: {len(superset_groups)} groups")
+                logger.info(f"Supersets dict: {len(supersets_dict)} groups")
                 if supersets_dict:
-                    logger.info(f"Supersets dict keys: {list(superset_groups.keys())}")
+                    logger.info(f"Supersets dict keys: {list(supersets_dict.keys())}")
                     for sg_id, exercises in supersets_dict.items():
-                        logger.info(f"  Superset '{sg_id}': {list(exercises.keys())}")
+                        logger.info(f"  Superset '{sg_id}': exercises={list(exercises.keys())}")
+                else:
+                    logger.info("No supersets found in this date")
                 
                 # Формируем список упражнений с сохранением группировки суперсетов
                 exercises_list = []
@@ -464,7 +466,7 @@ class GoogleSheetsManager:
                 for order, items, is_superset_group in all_items:
                     exercises_list.extend(items)
                 
-                logger.info(f"Date {date_val}: {len(superset_groups)} supersets, {len(standalone_list)} standalone exercises")
+                logger.info(f"Date {date_val}: {len(superset_groups)} superset groups, {len(standalone_list)} standalone exercises")
                 for ex in exercises_list:
                     superset_id = ex.get('supersetId', 'none')
                     logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets, supersetId: {superset_id}")
