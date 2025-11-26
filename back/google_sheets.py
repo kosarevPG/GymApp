@@ -165,6 +165,30 @@ class GoogleSheetsManager:
             row_num = cell.row
             logger.info(f"Updating exercise at row {row_num}")
             
+            # Получаем заголовки для проверки структуры
+            headers = self.exercises_sheet.row_values(1)
+            logger.info(f"Sheet headers: {headers}")
+            
+            # Определяем индексы колонок
+            image_url_col = None
+            image_url2_col = None
+            
+            for i, header in enumerate(headers, 1):
+                header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
+                if 'image' in header_lower and 'url' in header_lower:
+                    if '2' in header_lower or header_lower.endswith('2'):
+                        image_url2_col = i
+                    elif image_url_col is None:
+                        image_url_col = i
+            
+            # Если не нашли автоматически, используем стандартные индексы
+            if image_url_col is None:
+                image_url_col = 5  # Колонка E
+            if image_url2_col is None:
+                image_url2_col = 6  # Колонка F
+            
+            logger.info(f"Using columns: imageUrl={image_url_col}, imageUrl2={image_url2_col}")
+            
             if 'name' in data: 
                 self.exercises_sheet.update_cell(row_num, 2, data['name'])
                 logger.debug(f"Updated name: {data['name']}")
@@ -173,12 +197,15 @@ class GoogleSheetsManager:
                 logger.debug(f"Updated muscleGroup: {data['muscleGroup']}")
             if 'imageUrl' in data: 
                 image_url = data['imageUrl'] or ''
-                self.exercises_sheet.update_cell(row_num, 5, image_url)
-                logger.info(f"Updated imageUrl (length: {len(image_url)}): {image_url[:100] if image_url else 'empty'}...")
+                self.exercises_sheet.update_cell(row_num, image_url_col, image_url)
+                logger.info(f"Updated imageUrl in column {image_url_col} (length: {len(image_url)}): {image_url[:100] if image_url else 'empty'}...")
             if 'imageUrl2' in data: 
                 image_url2 = data['imageUrl2'] or ''
-                self.exercises_sheet.update_cell(row_num, 6, image_url2)
-                logger.info(f"Updated imageUrl2 (length: {len(image_url2)}): {image_url2[:100] if image_url2 else 'empty'}...")
+                self.exercises_sheet.update_cell(row_num, image_url2_col, image_url2)
+                logger.info(f"Updated imageUrl2 in column {image_url2_col} (length: {len(image_url2)}): {image_url2[:100] if image_url2 else 'empty'}...")
+                # Проверяем, что значение сохранилось
+                saved_value = self.exercises_sheet.cell(row_num, image_url2_col).value
+                logger.info(f"Verified saved imageUrl2 value: {saved_value[:100] if saved_value else 'empty'}...")
             return True
         except Exception as e:
             logger.error(f"Update exercise error: {e}", exc_info=True)
