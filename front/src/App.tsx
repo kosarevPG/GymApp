@@ -104,6 +104,10 @@ const api = {
           method: 'POST', 
           body: JSON.stringify({ id, updates }) 
       });
+  },
+
+  ping: async () => {
+      return await api.request('ping');
   }
 };
 
@@ -905,6 +909,22 @@ const App = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState('');
+
+  // Пинг сервера каждые 14 минут, чтобы предотвратить засыпание на бесплатном тарифе Render
+  useEffect(() => {
+    const pingInterval = setInterval(() => {
+      api.ping().catch(err => {
+        console.error('Ping failed:', err);
+      });
+    }, 14 * 60 * 1000); // 14 минут = 840000 мс
+
+    // Пингуем сразу при загрузке
+    api.ping().catch(err => {
+      console.error('Initial ping failed:', err);
+    });
+
+    return () => clearInterval(pingInterval);
+  }, []);
 
   // Порядок отображения групп мышц
   const groupOrder = ['Спина', 'Ноги', 'Грудь', 'Плечи', 'Трицепс', 'Бицепс', 'Пресс', 'Кардио'];

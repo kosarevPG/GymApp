@@ -119,6 +119,10 @@ async def api_update_exercise(request):
     except Exception as e:
         return json_response({"error": str(e)}, 500)
 
+async def api_ping(request):
+    """Эндпоинт для пинга сервера, чтобы предотвратить засыпание на бесплатном тарифе Render"""
+    return json_response({"status": "ok", "timestamp": int(time.time())})
+
 async def on_startup(app):
     asyncio.create_task(dp.start_polling(bot))
 
@@ -128,6 +132,7 @@ async def main():
         web.get('/api/init', api_init),
         web.get('/api/history', api_history),
         web.get('/api/global_history', api_global_history),
+        web.get('/api/ping', api_ping),
         web.post('/api/save_set', api_save_set),
         web.post('/api/create_exercise', api_create_exercise),
         web.post('/api/update_exercise', api_update_exercise),
