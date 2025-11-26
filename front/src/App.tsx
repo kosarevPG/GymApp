@@ -603,14 +603,14 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
           <div className="space-y-4">
              <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
                {infoModalEx.imageUrl ? (
-                 <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" onError={(e) => console.error('Error loading main image:', infoModalEx.imageUrl)} />
+                 <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" onError={() => console.error('Error loading main image:', infoModalEx.imageUrl)} />
                ) : (
                  <div className="w-full h-full flex items-center justify-center text-zinc-500">Нет фото</div>
                )}
              </div>
              {infoModalEx.imageUrl2 && infoModalEx.imageUrl2.trim() !== '' ? (
                <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
-                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" onError={(e) => console.error('Error loading second image:', infoModalEx.imageUrl2)} />
+                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" onError={() => console.error('Error loading second image:', infoModalEx.imageUrl2)} />
                </div>
              ) : (
                <div className="text-xs text-zinc-500 text-center py-2">Дополнительное фото отсутствует</div>
