@@ -365,7 +365,7 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
                     <div key={groupIdx}>
                       {isGroupStart && (
                         <div className="px-3 pt-3 pb-1 text-xs text-blue-400 font-bold flex items-center">
-                          <LinkIcon className="w-3 h-3 mr-1" /> ГРУППА ПОДХОДОВ
+                          <LinkIcon className="w-3 h-3 mr-1" /> СУПЕРСЕТ
                         </div>
                       )}
                       {group.items.map((item, idx) => {
