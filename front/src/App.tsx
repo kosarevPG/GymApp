@@ -972,6 +972,40 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         }
     }, [isOpen]);
     
+    // Сохраняем состояние при сворачивании приложения (visibilitychange)
+    useEffect(() => {
+        if (!isOpen || !exercise) return;
+        
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                // Приложение свернуто - сохраняем состояние
+                const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+                console.log('App hidden - saved draft to localStorage');
+            } else {
+                // Приложение снова видимо - восстанавливаем состояние
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    try {
+                        const draft = JSON.parse(saved);
+                        if (draft.exerciseId === exercise.id) {
+                            setName(draft.name || exercise.name);
+                            setGroup(draft.group || exercise.muscleGroup);
+                            setImage(draft.image || exercise.imageUrl || '');
+                            setImage2(draft.image2 || exercise.imageUrl2 || '');
+                            console.log('App visible - restored draft from localStorage');
+                        }
+                    } catch (e) {
+                        console.error('Error restoring draft on visibility change:', e);
+                    }
+                }
+            }
+        };
+        
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [isOpen, exercise, name, group, image, image2]);
+    
     const [uploadingImage1, setUploadingImage1] = useState(false);
     const [uploadingImage2, setUploadingImage2] = useState(false);
 
