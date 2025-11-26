@@ -553,7 +553,10 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
         id: infoModalEx.id,
         name: infoModalEx.name,
         imageUrl: infoModalEx.imageUrl,
-        imageUrl2: infoModalEx.imageUrl2
+        imageUrl2: infoModalEx.imageUrl2,
+        hasImageUrl2: !!infoModalEx.imageUrl2,
+        imageUrl2Length: infoModalEx.imageUrl2?.length || 0,
+        imageUrl2Trimmed: infoModalEx.imageUrl2?.trim() || ''
       });
     }
   }, [infoModalEx]);
@@ -598,11 +601,19 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
       <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalExId(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalExId(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
         {infoModalEx && (
           <div className="space-y-4">
-             <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" />}</div>
-             {infoModalEx.imageUrl2 && infoModalEx.imageUrl2.trim() !== '' && (
+             <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
+               {infoModalEx.imageUrl ? (
+                 <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" onError={(e) => console.error('Error loading main image:', infoModalEx.imageUrl)} />
+               ) : (
+                 <div className="w-full h-full flex items-center justify-center text-zinc-500">Нет фото</div>
+               )}
+             </div>
+             {infoModalEx.imageUrl2 && infoModalEx.imageUrl2.trim() !== '' ? (
                <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
-                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" />
+                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" onError={(e) => console.error('Error loading second image:', infoModalEx.imageUrl2)} />
                </div>
+             ) : (
+               <div className="text-xs text-zinc-500 text-center py-2">Дополнительное фото отсутствует</div>
              )}
              <div className="text-zinc-400 leading-relaxed">{infoModalEx.description || 'Описание отсутствует.'}</div>
              <div className="pt-4"><div className="text-xs text-zinc-500 uppercase font-bold tracking-wider mb-2">Группа</div><div className="px-3 py-1 bg-zinc-800 rounded-lg inline-block text-zinc-300 text-sm">{infoModalEx.muscleGroup}</div></div>
