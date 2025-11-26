@@ -114,11 +114,19 @@ class GoogleSheetsManager:
             exercises = []
             groups = set()
             
+            # Логируем заголовки для отладки
+            if records:
+                logger.info(f"Column headers in EXERCISES sheet: {list(records[0].keys())}")
+            
             for r in records:
                 if not r.get('ID') and not r.get('Name'): continue
                     
                 group = r.get('Muscle Group', '').strip()
                 if group: groups.add(group)
+                
+                image_url2 = r.get('Image_URL2', '') or r.get('Image_URL2 ', '')  # Проверяем с пробелом на конце
+                if image_url2:
+                    logger.debug(f"Found imageUrl2 for exercise {r.get('Name')}: {image_url2[:50]}...")
                 
                 exercises.append({
                     'id': str(r.get('ID', '')),
@@ -126,7 +134,7 @@ class GoogleSheetsManager:
                     'muscleGroup': group,
                     'description': r.get('Description', ''),
                     'imageUrl': r.get('Image_URL', ''),
-                    'imageUrl2': r.get('Image_URL2', '')
+                    'imageUrl2': image_url2
                 })
             
             # Сортируем упражнения по имени (Name)
