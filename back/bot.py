@@ -2,6 +2,9 @@ import asyncio
 import logging
 import os
 import json
+import time
+import cloudinary
+import cloudinary.uploader
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -25,6 +28,21 @@ PORT = int(os.getenv("PORT", 8000))
 logger.info(f"WEBAPP_URL from environment: {WEBAPP_URL}")
 CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+
+# Cloudinary настройки
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET
+    )
+    logger.info("Cloudinary configured successfully")
+else:
+    logger.warning("Cloudinary credentials not found. Image upload will not work.")
 
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
@@ -123,6 +141,38 @@ async def api_ping(request):
     """Эндпоинт для пинга сервера, чтобы предотвратить засыпание на бесплатном тарифе Render"""
     return json_response({"status": "ok", "timestamp": int(time.time())})
 
+async def api_upload_image(request):
+    """Эндпоинт для загрузки изображения в Cloudinary"""
+    if not CLOUDINARY_CLOUD_NAME or not CLOUDINARY_API_KEY or not CLOUDINARY_API_SECRET:
+        return json_response({"error": "Cloudinary not configured"}, 500)
+    
+    try:
+        # Получаем данные из multipart/form-data
+        reader = await request.multipart()
+        field = await reader.next()
+        
+        if field.name != 'image':
+            return json_response({"error": "Missing 'image' field"}, 400)
+        
+        # Читаем файл
+        image_data = await field.read()
+        
+        # Загружаем в Cloudinary
+        result = cloudinary.uploader.upload(
+            image_data,
+            folder="gymapp/exercises",  # Папка в Cloudinary
+            resource_type="image"
+        )
+        
+        # Возвращаем URL изображения
+        return json_response({
+            "url": result.get('secure_url') or result.get('url'),
+            "public_id": result.get('public_id')
+        })
+    except Exception as e:
+        logger.error(f"Image upload error: {e}", exc_info=True)
+        return json_response({"error": str(e)}, 500)
+
 async def on_startup(app):
     asyncio.create_task(dp.start_polling(bot))
 
@@ -136,6 +186,7 @@ async def main():
         web.post('/api/save_set', api_save_set),
         web.post('/api/create_exercise', api_create_exercise),
         web.post('/api/update_exercise', api_update_exercise),
+        web.post('/api/upload_image', api_upload_image),
         web.options('/{tail:.*}', handle_options),
     ])
     

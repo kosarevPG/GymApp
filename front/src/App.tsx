@@ -109,6 +109,23 @@ const api = {
 
   ping: async () => {
       return await api.request('ping');
+  },
+
+  uploadImage: async (file: File) => {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/upload_image`, {
+              method: 'POST',
+              body: formData
+          });
+          if (!res.ok) throw new Error('Upload failed');
+          return await res.json();
+      } catch (e) {
+          console.error('Image upload error:', e);
+          return null;
+      }
   }
 };
 
@@ -912,14 +929,36 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         } 
     }, [exercise]);
     
-    const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { const r = new FileReader(); r.onloadend = () => setImage(r.result as string); r.readAsDataURL(file); }
+        if (file) {
+            // Показываем превью локально
+            const r = new FileReader();
+            r.onloadend = () => setImage(r.result as string);
+            r.readAsDataURL(file);
+            
+            // Загружаем на Cloudinary
+            const result = await api.uploadImage(file);
+            if (result && result.url) {
+                setImage(result.url);
+            }
+        }
     };
 
-    const handleFile2 = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFile2 = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { const r = new FileReader(); r.onloadend = () => setImage2(r.result as string); r.readAsDataURL(file); }
+        if (file) {
+            // Показываем превью локально
+            const r = new FileReader();
+            r.onloadend = () => setImage2(r.result as string);
+            r.readAsDataURL(file);
+            
+            // Загружаем на Cloudinary
+            const result = await api.uploadImage(file);
+            if (result && result.url) {
+                setImage2(result.url);
+            }
+        }
     };
 
     return (

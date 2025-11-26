@@ -7,3 +7,4 @@ google-auth-httplib2==0.1.1
 python-dotenv==1.0.0
 pydantic==2.3.0
 pydantic-core==2.6.3
+cloudinary==1.36.0
