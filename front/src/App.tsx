@@ -357,26 +357,28 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
               <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
                 {groupedBySetGroup.map((group, groupIdx) => {
                   const isSupersetGroup = group.setGroupId && group.setGroupId.trim() !== '';
-                  const isFirstInGroup = groupIdx === 0;
                   const isLastInGroup = groupIdx === groupedBySetGroup.length - 1;
+                  const prevGroup = groupIdx > 0 ? groupedBySetGroup[groupIdx - 1] : null;
+                  const isGroupStart = isSupersetGroup && (!prevGroup || prevGroup.setGroupId !== group.setGroupId);
                   
                   return (
                     <div key={groupIdx}>
-                      {isSupersetGroup && isFirstInGroup && (
+                      {isGroupStart && (
                         <div className="px-3 pt-3 pb-1 text-xs text-blue-400 font-bold flex items-center">
                           <LinkIcon className="w-3 h-3 mr-1" /> ГРУППА ПОДХОДОВ
                         </div>
                       )}
                       {group.items.map((item, idx) => {
                         const isLastItem = idx === group.items.length - 1;
+                        const isGroupEnd = isSupersetGroup && isLastItem && (isLastInGroup || (groupIdx < groupedBySetGroup.length - 1 && groupedBySetGroup[groupIdx + 1].setGroupId !== group.setGroupId));
                         const borderClass = isSupersetGroup 
-                          ? `border-l-2 border-l-blue-500 bg-blue-500/5 ${!isLastItem ? 'border-b border-zinc-800/50' : ''}`
+                          ? `border-l-2 border-l-blue-500 bg-blue-500/5 ${!isLastItem ? 'border-b border-zinc-800/50' : (isGroupEnd ? 'border-b border-zinc-800/50' : '')}`
                           : 'border-b border-zinc-800';
                         
                         return (
                           <div 
                             key={idx} 
-                            className={`p-3 ${borderClass} ${isLastItem && isLastInGroup ? 'last:border-b-0' : ''} flex items-center justify-between`}
+                            className={`p-3 ${borderClass} ${isLastItem && isLastInGroup && !isSupersetGroup ? 'last:border-b-0' : ''} flex items-center justify-between`}
                           >
                             <div>
                               <div className="text-lg font-medium text-zinc-200">{item.weight} <span className="text-sm text-zinc-500">кг</span> × {item.reps}</div>
