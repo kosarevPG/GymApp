@@ -546,6 +546,18 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
   // Получаем актуальные данные упражнения из allExercises
   const infoModalEx = infoModalExId ? allExercises.find((ex: Exercise) => ex.id === infoModalExId) || null : null;
   
+  // Отладка: логируем данные упражнения
+  useEffect(() => {
+    if (infoModalEx) {
+      console.log('Exercise data in modal:', {
+        id: infoModalEx.id,
+        name: infoModalEx.name,
+        imageUrl: infoModalEx.imageUrl,
+        imageUrl2: infoModalEx.imageUrl2
+      });
+    }
+  }, [infoModalEx]);
+  
   // Автофокус на поле поиска при монтировании, если есть searchQuery
   useEffect(() => {
     if (searchQuery && searchInputRef.current) {
@@ -586,9 +598,11 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
       <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalExId(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalExId(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
         {infoModalEx && (
           <div className="space-y-4">
-             <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" />}</div>
-             {infoModalEx.imageUrl2 && (
-               <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden"><img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" /></div>
+             <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" />}</div>
+             {infoModalEx.imageUrl2 && infoModalEx.imageUrl2.trim() !== '' && (
+               <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
+                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" />
+               </div>
              )}
              <div className="text-zinc-400 leading-relaxed">{infoModalEx.description || 'Описание отсутствует.'}</div>
              <div className="pt-4"><div className="text-xs text-zinc-500 uppercase font-bold tracking-wider mb-2">Группа</div><div className="px-3 py-1 bg-zinc-800 rounded-lg inline-block text-zinc-300 text-sm">{infoModalEx.muscleGroup}</div></div>
@@ -1007,9 +1021,20 @@ const App = () => {
   };
 
   const handleUpdate = async (id: string, updates: Partial<Exercise>) => {
+      // Обновляем локально для мгновенного отображения
       setAllExercises(p => p.map(ex => ex.id === id ? { ...ex, ...updates } : ex));
-      await api.updateExercise(id, updates);
-      notify('success');
+      // Сохраняем на сервере
+      const result = await api.updateExercise(id, updates);
+      if (result) {
+          // Перезагружаем данные с сервера для синхронизации
+          const freshData = await api.getInit();
+          if (freshData && freshData.exercises) {
+              setAllExercises(freshData.exercises);
+          }
+          notify('success');
+      } else {
+          notify('error');
+      }
   };
 
   return (
