@@ -609,30 +609,28 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
         
         let initialSets: WorkoutSet[] = [];
         if (history.length > 0) {
-            // Сортируем историю по ORDER (от старых к новым), если есть поле order
-            const sortedHistory = [...history].sort((a, b) => {
-                if (a.order !== undefined && b.order !== undefined) {
-                    return a.order - b.order;
-                }
-                return 0;
-            });
+            // История уже отсортирована на бэкенде от новых к старым
+            // Берем первую дату (самую новую)
+            const lastDate = history[0]?.date;
             
-            // Берем последнюю дату (самую новую)
-            const lastDate = sortedHistory[sortedHistory.length - 1]?.date || sortedHistory[0]?.date;
-            
-            // Фильтруем по последней дате и сортируем по ORDER
-            const lastDateItems = sortedHistory
-                .filter(h => h.date === lastDate)
-                .sort((a, b) => (a.order || 0) - (b.order || 0));
-            
-            initialSets = lastDateItems.map(h => ({
-                id: crypto.randomUUID(), 
-                weight: h.weight.toString(), 
-                reps: h.reps.toString(), 
-                rest: h.rest.toString(), 
-                completed: false, 
-                prevWeight: h.weight
-            }));
+            if (lastDate) {
+                // Фильтруем по последней дате и сортируем по ORDER (от старых к новым внутри даты)
+                const lastDateItems = history
+                    .filter((h: HistoryItem) => h.date === lastDate)
+                    .sort((a: HistoryItem, b: HistoryItem) => (a.order || 0) - (b.order || 0));
+                
+                initialSets = lastDateItems.map((h: HistoryItem) => ({
+                    id: crypto.randomUUID(), 
+                    weight: h.weight.toString(), 
+                    reps: h.reps.toString(), 
+                    rest: h.rest.toString(), 
+                    completed: false, 
+                    prevWeight: h.weight
+                }));
+            } else {
+                // Если даты нет, создаем пустой сет
+                initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
+            }
         } else {
             initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
         }
