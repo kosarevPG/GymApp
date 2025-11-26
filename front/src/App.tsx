@@ -1036,14 +1036,28 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
             <div className="space-y-6">
                 <div>
                     <label className="text-sm text-zinc-400 mb-2 block">Основное фото</label>
-                    <div onClick={() => fileRef.current?.click()} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
+                    <div onClick={() => {
+                        // Сохраняем состояние перед открытием файлового диалога
+                        if (exercise) {
+                            const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+                        }
+                        fileRef.current?.click();
+                    }} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
                         {image ? <img src={image} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото</span></div>}
                     </div>
                     <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
                 </div>
                 <div>
                     <label className="text-sm text-zinc-400 mb-2 block">Дополнительное фото</label>
-                    <div onClick={() => fileRef2.current?.click()} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
+                    <div onClick={() => {
+                        // Сохраняем состояние перед открытием файлового диалога
+                        if (exercise) {
+                            const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+                        }
+                        fileRef2.current?.click();
+                    }} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
                         {image2 ? <img src={image2} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото 2</span></div>}
                     </div>
                     <input ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handleFile2} />
