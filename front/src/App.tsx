@@ -929,18 +929,33 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         } 
     }, [exercise]);
     
+    const [uploadingImage1, setUploadingImage1] = useState(false);
+    const [uploadingImage2, setUploadingImage2] = useState(false);
+
     const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            // Показываем превью локально
-            const r = new FileReader();
-            r.onloadend = () => setImage(r.result as string);
-            r.readAsDataURL(file);
-            
-            // Загружаем на Cloudinary
-            const result = await api.uploadImage(file);
-            if (result && result.url) {
-                setImage(result.url);
+            setUploadingImage1(true);
+            try {
+                // Показываем превью локально
+                const r = new FileReader();
+                r.onloadend = () => setImage(r.result as string);
+                r.readAsDataURL(file);
+                
+                // Загружаем на Cloudinary
+                console.log('Uploading image 1 to Cloudinary...');
+                const result = await api.uploadImage(file);
+                console.log('Upload result:', result);
+                if (result && result.url) {
+                    setImage(result.url);
+                    console.log('Image 1 uploaded successfully, URL:', result.url);
+                } else {
+                    console.error('Failed to upload image 1: no URL in result');
+                }
+            } catch (error) {
+                console.error('Error uploading image 1:', error);
+            } finally {
+                setUploadingImage1(false);
             }
         }
     };
@@ -948,15 +963,27 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
     const handleFile2 = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            // Показываем превью локально
-            const r = new FileReader();
-            r.onloadend = () => setImage2(r.result as string);
-            r.readAsDataURL(file);
-            
-            // Загружаем на Cloudinary
-            const result = await api.uploadImage(file);
-            if (result && result.url) {
-                setImage2(result.url);
+            setUploadingImage2(true);
+            try {
+                // Показываем превью локально
+                const r = new FileReader();
+                r.onloadend = () => setImage2(r.result as string);
+                r.readAsDataURL(file);
+                
+                // Загружаем на Cloudinary
+                console.log('Uploading image 2 to Cloudinary...');
+                const result = await api.uploadImage(file);
+                console.log('Upload result:', result);
+                if (result && result.url) {
+                    setImage2(result.url);
+                    console.log('Image 2 uploaded successfully, URL:', result.url);
+                } else {
+                    console.error('Failed to upload image 2: no URL in result');
+                }
+            } catch (error) {
+                console.error('Error uploading image 2:', error);
+            } finally {
+                setUploadingImage2(false);
             }
         }
     };
@@ -983,7 +1010,23 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <label className="text-sm text-zinc-400 mb-1 block">Группа</label>
                     <div className="flex flex-wrap gap-2">{groups.map((g: string) => <button key={g} onClick={() => setGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${group === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div>
                 </div>
-                <Button onClick={() => { onSave(exercise.id, { name, muscleGroup: group, imageUrl: image, imageUrl2: image2 }); onClose(); }} className="w-full h-12">Сохранить</Button>
+                <Button 
+                    onClick={() => { 
+                        console.log('Saving exercise with images:', { 
+                            id: exercise.id, 
+                            imageUrl: image, 
+                            imageUrl2: image2,
+                            imageUrlIsCloudinary: image?.startsWith('http'),
+                            imageUrl2IsCloudinary: image2?.startsWith('http')
+                        });
+                        onSave(exercise.id, { name, muscleGroup: group, imageUrl: image, imageUrl2: image2 }); 
+                        onClose(); 
+                    }} 
+                    className="w-full h-12"
+                    disabled={uploadingImage1 || uploadingImage2}
+                >
+                    {uploadingImage1 || uploadingImage2 ? 'Загрузка...' : 'Сохранить'}
+                </Button>
             </div>
         </Modal>
     );

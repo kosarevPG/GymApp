@@ -158,16 +158,30 @@ class GoogleSheetsManager:
     def update_exercise(self, ex_id: str, data: Dict) -> bool:
         try:
             cell = self.exercises_sheet.find(ex_id)
-            if not cell: return False
+            if not cell: 
+                logger.error(f"Exercise with ID {ex_id} not found")
+                return False
             
             row_num = cell.row
-            if 'name' in data: self.exercises_sheet.update_cell(row_num, 2, data['name'])
-            if 'muscleGroup' in data: self.exercises_sheet.update_cell(row_num, 3, data['muscleGroup'])
-            if 'imageUrl' in data: self.exercises_sheet.update_cell(row_num, 5, data['imageUrl'])
-            if 'imageUrl2' in data: self.exercises_sheet.update_cell(row_num, 6, data['imageUrl2'])
+            logger.info(f"Updating exercise at row {row_num}")
+            
+            if 'name' in data: 
+                self.exercises_sheet.update_cell(row_num, 2, data['name'])
+                logger.debug(f"Updated name: {data['name']}")
+            if 'muscleGroup' in data: 
+                self.exercises_sheet.update_cell(row_num, 3, data['muscleGroup'])
+                logger.debug(f"Updated muscleGroup: {data['muscleGroup']}")
+            if 'imageUrl' in data: 
+                image_url = data['imageUrl'] or ''
+                self.exercises_sheet.update_cell(row_num, 5, image_url)
+                logger.info(f"Updated imageUrl (length: {len(image_url)}): {image_url[:100] if image_url else 'empty'}...")
+            if 'imageUrl2' in data: 
+                image_url2 = data['imageUrl2'] or ''
+                self.exercises_sheet.update_cell(row_num, 6, image_url2)
+                logger.info(f"Updated imageUrl2 (length: {len(image_url2)}): {image_url2[:100] if image_url2 else 'empty'}...")
             return True
         except Exception as e:
-            logger.error(f"Update exercise error: {e}")
+            logger.error(f"Update exercise error: {e}", exc_info=True)
             return False
 
     def save_workout_set(self, data: Dict) -> bool:

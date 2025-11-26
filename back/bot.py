@@ -131,10 +131,17 @@ async def api_create_exercise(request):
 async def api_update_exercise(request):
     try:
         data = await request.json()
-        if sheets.update_exercise(data.get('id'), data.get('updates')):
+        updates = data.get('updates', {})
+        logger.info(f"Updating exercise {data.get('id')} with updates: {list(updates.keys())}")
+        if 'imageUrl' in updates:
+            logger.info(f"ImageUrl: {updates['imageUrl'][:100] if updates['imageUrl'] else 'empty'}...")
+        if 'imageUrl2' in updates:
+            logger.info(f"ImageUrl2: {updates['imageUrl2'][:100] if updates['imageUrl2'] else 'empty'}...")
+        if sheets.update_exercise(data.get('id'), updates):
             return json_response({"status": "success"})
         return json_response({"error": "Failed"}, 500)
     except Exception as e:
+        logger.error(f"Update exercise error: {e}", exc_info=True)
         return json_response({"error": str(e)}, 500)
 
 async def api_ping(request):
