@@ -125,7 +125,8 @@ class GoogleSheetsManager:
                     'name': r.get('Name', ''),
                     'muscleGroup': group,
                     'description': r.get('Description', ''),
-                    'imageUrl': r.get('Image_URL', '')
+                    'imageUrl': r.get('Image_URL', ''),
+                    'imageUrl2': r.get('Image_URL2', '')
                 })
             
             # Сортируем упражнения по имени (Name)
@@ -141,7 +142,7 @@ class GoogleSheetsManager:
         row = [new_id, name, group, "", "", ""]
         try:
             self.exercises_sheet.append_row(row)
-            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": ""}
+            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": ""}
         except Exception as e:
             logger.error(f"Create exercise error: {e}")
             raise
@@ -155,6 +156,7 @@ class GoogleSheetsManager:
             if 'name' in data: self.exercises_sheet.update_cell(row_num, 2, data['name'])
             if 'muscleGroup' in data: self.exercises_sheet.update_cell(row_num, 3, data['muscleGroup'])
             if 'imageUrl' in data: self.exercises_sheet.update_cell(row_num, 5, data['imageUrl'])
+            if 'imageUrl2' in data: self.exercises_sheet.update_cell(row_num, 6, data['imageUrl2'])
             return True
         except Exception as e:
             logger.error(f"Update exercise error: {e}")

@@ -21,6 +21,7 @@ interface Exercise {
   muscleGroup: string;
   description?: string;
   imageUrl?: string;
+  imageUrl2?: string;
 }
 
 interface WorkoutSet {
@@ -536,7 +537,7 @@ const ExerciseCard = React.memo(({ ex, onSelectExercise, onInfoClick }: { ex: Ex
     </div>
     <button onClick={() => onSelectExercise(ex)} className="p-2 text-zinc-600"><ChevronRight className="w-5 h-5" /></button>
   </div>
-), (prevProps, nextProps) => prevProps.ex.id === nextProps.ex.id && prevProps.ex.name === nextProps.ex.name && prevProps.ex.muscleGroup === nextProps.ex.muscleGroup && prevProps.ex.imageUrl === nextProps.ex.imageUrl);
+), (prevProps, nextProps) => prevProps.ex.id === nextProps.ex.id && prevProps.ex.name === nextProps.ex.name && prevProps.ex.muscleGroup === nextProps.ex.muscleGroup && prevProps.ex.imageUrl === nextProps.ex.imageUrl && prevProps.ex.imageUrl2 === nextProps.ex.imageUrl2);
 
 const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, onEditExercise, searchQuery, onSearch }: any) => {
   const [infoModalEx, setInfoModalEx] = useState<Exercise | null>(null);
@@ -583,6 +584,9 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
         {infoModalEx && (
           <div className="space-y-4">
              <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" />}</div>
+             {infoModalEx.imageUrl2 && (
+               <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden"><img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" /></div>
+             )}
              <div className="text-zinc-400 leading-relaxed">{infoModalEx.description || 'Описание отсутствует.'}</div>
              <div className="pt-4"><div className="text-xs text-zinc-500 uppercase font-bold tracking-wider mb-2">Группа</div><div className="px-3 py-1 bg-zinc-800 rounded-lg inline-block text-zinc-300 text-sm">{infoModalEx.muscleGroup}</div></div>
           </div>
@@ -868,27 +872,51 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
     const [name, setName] = useState('');
     const [group, setGroup] = useState('');
     const [image, setImage] = useState('');
+    const [image2, setImage2] = useState('');
     const fileRef = useRef<HTMLInputElement>(null);
-    useEffect(() => { if(exercise) { setName(exercise.name); setGroup(exercise.muscleGroup); setImage(exercise.imageUrl || ''); } }, [exercise]);
+    const fileRef2 = useRef<HTMLInputElement>(null);
+    useEffect(() => { 
+        if(exercise) { 
+            setName(exercise.name); 
+            setGroup(exercise.muscleGroup); 
+            setImage(exercise.imageUrl || ''); 
+            setImage2(exercise.imageUrl2 || ''); 
+        } 
+    }, [exercise]);
     
     const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) { const r = new FileReader(); r.onloadend = () => setImage(r.result as string); r.readAsDataURL(file); }
     };
 
+    const handleFile2 = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) { const r = new FileReader(); r.onloadend = () => setImage2(r.result as string); r.readAsDataURL(file); }
+    };
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Редактировать">
             <div className="space-y-6">
-                <div onClick={() => fileRef.current?.click()} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
-                    {image ? <img src={image} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото</span></div>}
+                <div>
+                    <label className="text-sm text-zinc-400 mb-2 block">Основное фото</label>
+                    <div onClick={() => fileRef.current?.click()} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
+                        {image ? <img src={image} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото</span></div>}
+                    </div>
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
                 </div>
-                <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
+                <div>
+                    <label className="text-sm text-zinc-400 mb-2 block">Дополнительное фото</label>
+                    <div onClick={() => fileRef2.current?.click()} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
+                        {image2 ? <img src={image2} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото 2</span></div>}
+                    </div>
+                    <input ref={fileRef2} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile2} />
+                </div>
                 <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} /></div>
                 <div>
                     <label className="text-sm text-zinc-400 mb-1 block">Группа</label>
                     <div className="flex flex-wrap gap-2">{groups.map((g: string) => <button key={g} onClick={() => setGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${group === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div>
                 </div>
-                <Button onClick={() => { onSave(exercise.id, { name, muscleGroup: group, imageUrl: image }); onClose(); }} className="w-full h-12">Сохранить</Button>
+                <Button onClick={() => { onSave(exercise.id, { name, muscleGroup: group, imageUrl: image, imageUrl2: image2 }); onClose(); }} className="w-full h-12">Сохранить</Button>
             </div>
         </Modal>
     );
