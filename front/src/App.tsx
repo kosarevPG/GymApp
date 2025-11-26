@@ -914,20 +914,63 @@ const HistoryScreen = ({ onBack }: any) => {
 };
 
 const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) => {
+    const STORAGE_KEY = 'gym_edit_exercise_draft';
+    
     const [name, setName] = useState('');
     const [group, setGroup] = useState('');
     const [image, setImage] = useState('');
     const [image2, setImage2] = useState('');
     const fileRef = useRef<HTMLInputElement>(null);
     const fileRef2 = useRef<HTMLInputElement>(null);
+    
+    // Сохраняем состояние в localStorage при каждом изменении
+    useEffect(() => {
+        if (exercise && isOpen) {
+            const draft = {
+                exerciseId: exercise.id,
+                name,
+                group,
+                image,
+                image2
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+        }
+    }, [name, group, image, image2, exercise, isOpen]);
+    
+    // Восстанавливаем состояние из localStorage или из exercise
     useEffect(() => { 
-        if(exercise) { 
+        if(exercise && isOpen) {
+            // Пытаемся восстановить из localStorage
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const draft = JSON.parse(saved);
+                    // Проверяем, что это тот же exercise
+                    if (draft.exerciseId === exercise.id) {
+                        setName(draft.name || exercise.name);
+                        setGroup(draft.group || exercise.muscleGroup);
+                        setImage(draft.image || exercise.imageUrl || '');
+                        setImage2(draft.image2 || exercise.imageUrl2 || '');
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Error restoring draft:', e);
+                }
+            }
+            // Если нет сохраненного или это другой exercise, используем данные из exercise
             setName(exercise.name); 
             setGroup(exercise.muscleGroup); 
             setImage(exercise.imageUrl || ''); 
             setImage2(exercise.imageUrl2 || ''); 
-        } 
-    }, [exercise]);
+        }
+    }, [exercise, isOpen]);
+    
+    // Очищаем сохраненное состояние при закрытии модального окна
+    useEffect(() => {
+        if (!isOpen) {
+            localStorage.removeItem(STORAGE_KEY);
+        }
+    }, [isOpen]);
     
     const [uploadingImage1, setUploadingImage1] = useState(false);
     const [uploadingImage2, setUploadingImage2] = useState(false);
@@ -1019,6 +1062,8 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                             imageUrlIsCloudinary: image?.startsWith('http'),
                             imageUrl2IsCloudinary: image2?.startsWith('http')
                         });
+                        // Очищаем сохраненное состояние после успешного сохранения
+                        localStorage.removeItem(STORAGE_KEY);
                         onSave(exercise.id, { name, muscleGroup: group, imageUrl: image, imageUrl2: image2 }); 
                         onClose(); 
                     }} 
