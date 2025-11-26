@@ -1114,18 +1114,26 @@ const App = () => {
   };
 
   const handleUpdate = async (id: string, updates: Partial<Exercise>) => {
+      console.log('handleUpdate called with:', { id, updates });
+      console.log('imageUrl:', updates.imageUrl);
+      console.log('imageUrl2:', updates.imageUrl2);
+      
       // Обновляем локально для мгновенного отображения
       setAllExercises(p => p.map(ex => ex.id === id ? { ...ex, ...updates } : ex));
       // Сохраняем на сервере
       const result = await api.updateExercise(id, updates);
+      console.log('Update result:', result);
       if (result) {
           // Перезагружаем данные с сервера для синхронизации
           const freshData = await api.getInit();
           if (freshData && freshData.exercises) {
+              const updatedEx = freshData.exercises.find((ex: Exercise) => ex.id === id);
+              console.log('Reloaded exercise data:', updatedEx);
               setAllExercises(freshData.exercises);
           }
           notify('success');
       } else {
+          console.error('Update failed');
           notify('error');
       }
   };
