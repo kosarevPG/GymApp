@@ -539,9 +539,12 @@ const ExerciseCard = React.memo(({ ex, onSelectExercise, onInfoClick }: { ex: Ex
   </div>
 ), (prevProps, nextProps) => prevProps.ex.id === nextProps.ex.id && prevProps.ex.name === nextProps.ex.name && prevProps.ex.muscleGroup === nextProps.ex.muscleGroup && prevProps.ex.imageUrl === nextProps.ex.imageUrl && prevProps.ex.imageUrl2 === nextProps.ex.imageUrl2);
 
-const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, onEditExercise, searchQuery, onSearch }: any) => {
-  const [infoModalEx, setInfoModalEx] = useState<Exercise | null>(null);
+const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, onEditExercise, searchQuery, onSearch, allExercises }: any) => {
+  const [infoModalExId, setInfoModalExId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  
+  // Получаем актуальные данные упражнения из allExercises
+  const infoModalEx = infoModalExId ? allExercises.find((ex: Exercise) => ex.id === infoModalExId) || null : null;
   
   // Автофокус на поле поиска при монтировании, если есть searchQuery
   useEffect(() => {
@@ -577,10 +580,10 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
       </div>
       <div className="p-4 space-y-2 pb-24">
         {exercises.map((ex: Exercise) => (
-          <ExerciseCard key={ex.id} ex={ex} onSelectExercise={onSelectExercise} onInfoClick={setInfoModalEx} />
+          <ExerciseCard key={ex.id} ex={ex} onSelectExercise={onSelectExercise} onInfoClick={(ex: Exercise) => setInfoModalExId(ex.id)} />
         ))}
       </div>
-      <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalEx(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalEx(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
+      <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalExId(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalExId(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
         {infoModalEx && (
           <div className="space-y-4">
              <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">{infoModalEx.imageUrl && <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" />}</div>
