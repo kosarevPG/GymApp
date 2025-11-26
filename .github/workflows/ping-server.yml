@@ -1,0 +1,16 @@
+name: Ping Server to Keep Alive
+
+on:
+  schedule:
+    # Запускается каждые 5 минут
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Позволяет запускать вручную из GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render server
+        run: |
+          curl -f https://gym-logger-bot-y602.onrender.com/api/ping || exit 0
+
