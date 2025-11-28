@@ -370,11 +370,11 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
                           >
                             <div>
                               <div className="text-lg font-medium text-zinc-200">
-                                {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps}
+                                {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps} <span className="text-sm text-zinc-500">повторений</span>
                               </div>
                             </div>
                             <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
-                              {set.rest}м
+                              отдых {set.rest}м
                             </div>
                           </div>
                         );
@@ -402,11 +402,11 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
                       >
                         <div>
                           <div className="text-lg font-medium text-zinc-200">
-                            {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps}
+                            {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps} <span className="text-sm text-zinc-500">повторений</span>
                           </div>
                         </div>
                         <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
-                          {set.rest}м
+                          отдых {set.rest}м
                         </div>
                       </div>
                     );
@@ -428,12 +428,17 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
   const deltaColor = delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-zinc-500';
 
+  // Классы для "задизейбленных" инпутов (но не кнопки!)
+  const inputDisabledClass = set.completed ? 'opacity-50 pointer-events-none' : '';
+
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3 ${set.completed ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
-      <button onClick={() => onComplete(set.id)} className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-colors ${set.completed ? 'bg-green-500 border-green-500' : 'bg-zinc-900 border-zinc-700'}`}>
-        {set.completed && <Check className="w-6 h-6 text-white" />}
+    // УБРАЛИ 'grayscale' и 'opacity-50' отсюда, чтобы кнопка была яркой
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3`}>
+      <button onClick={() => onComplete(set.id)} className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${set.completed ? 'bg-yellow-500 border-yellow-500' : 'bg-transparent border-zinc-700 hover:border-zinc-500'}`}>
+        {set.completed && <Check className="w-6 h-6 text-black stroke-[3]" />}
       </button>
-      <div className="flex flex-col gap-1">
+      
+      <div className={`flex flex-col gap-1 ${inputDisabledClass}`}>
         <input 
           type="number" 
           inputMode="decimal" 
@@ -457,7 +462,7 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.reps} 
         onChange={e => onUpdate(set.id, 'reps', e.target.value)}
         onFocus={e => e.target.select()}
-        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
       />
       <input 
         type="number" 
@@ -466,9 +471,9 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.rest} 
         onChange={e => onUpdate(set.id, 'rest', e.target.value)}
         onFocus={e => e.target.select()}
-        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
       />
-      <button onClick={() => onDelete(set.id)} className="w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
+      <button onClick={() => onDelete(set.id)} className={`w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500 ${inputDisabledClass}`}><Trash2 className="w-5 h-5" /></button>
     </motion.div>
   );
 };
@@ -898,14 +903,27 @@ const HistoryScreen = ({ onBack }: any) => {
                                                     {supersetIndicator}
                                                     <div className="font-medium text-zinc-300 mb-2">{ex.name}</div>
                                                     {ex.sets && Array.isArray(ex.sets) && ex.sets.length > 0 ? (
-                                                        <div className="space-y-1">
+                                                        <div className="space-y-0">
                                                             {ex.sets.map((s: any, j: number) => {
                                                                 const weight = typeof s.weight === 'number' ? s.weight : (s.weight ? parseFloat(String(s.weight)) : 0);
                                                                 const reps = typeof s.reps === 'number' ? s.reps : (s.reps ? parseInt(String(s.reps)) : 0);
+                                                                const rest = typeof s.rest === 'number' ? s.rest : (s.rest ? parseFloat(String(s.rest)) : 0);
+                                                                const isLastSet = j === ex.sets.length - 1;
+                                                                const setBorderClass = isLastSet && !isSuperset ? '' : 'border-b border-zinc-800/50';
+                                                                
                                                                 return (
-                                                                    <div key={j} className="flex justify-between text-sm text-zinc-400 px-2 py-1 bg-zinc-800/30 rounded">
-                                                                        <span>#{j+1} {weight}кг</span>
-                                                                        <span>{reps}повт</span>
+                                                                    <div 
+                                                                        key={j} 
+                                                                        className={`p-3 ${setBorderClass} flex items-center justify-between`}
+                                                                    >
+                                                                        <div>
+                                                                            <div className="text-lg font-medium text-zinc-200">
+                                                                                {weight} <span className="text-sm text-zinc-500">кг</span> × {reps} <span className="text-sm text-zinc-500">повторений</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
+                                                                            отдых {rest}м
+                                                                        </div>
                                                                     </div>
                                                                 );
                                                             })}
@@ -935,6 +953,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
     
     const [name, setName] = useState('');
     const [group, setGroup] = useState('');
+    const [description, setDescription] = useState('');
     const [image, setImage] = useState('');
     const [image2, setImage2] = useState('');
     const fileRef = useRef<HTMLInputElement>(null);
@@ -947,12 +966,13 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                 exerciseId: exercise.id,
                 name,
                 group,
+                description,
                 image,
                 image2
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
         }
-    }, [name, group, image, image2, exercise, isOpen]);
+    }, [name, group, description, image, image2, exercise, isOpen]);
     
     // Восстанавливаем состояние из localStorage или из exercise
     useEffect(() => { 
@@ -966,6 +986,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     if (draft.exerciseId === exercise.id) {
                         setName(draft.name || exercise.name);
                         setGroup(draft.group || exercise.muscleGroup);
+                        setDescription(draft.description || exercise.description || '');
                         setImage(draft.image || exercise.imageUrl || '');
                         setImage2(draft.image2 || exercise.imageUrl2 || '');
                         return;
@@ -977,6 +998,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
             // Если нет сохраненного или это другой exercise, используем данные из exercise
             setName(exercise.name); 
             setGroup(exercise.muscleGroup); 
+            setDescription(exercise.description || '');
             setImage(exercise.imageUrl || ''); 
             setImage2(exercise.imageUrl2 || ''); 
         }
@@ -996,7 +1018,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         const handleVisibilityChange = () => {
             if (document.hidden) {
                 // Приложение свернуто - сохраняем состояние
-                const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                 console.log('App hidden - saved draft to localStorage');
             } else {
@@ -1008,6 +1030,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                         if (draft.exerciseId === exercise.id) {
                             setName(draft.name || exercise.name);
                             setGroup(draft.group || exercise.muscleGroup);
+                            setDescription(draft.description || exercise.description || '');
                             setImage(draft.image || exercise.imageUrl || '');
                             setImage2(draft.image2 || exercise.imageUrl2 || '');
                             console.log('App visible - restored draft from localStorage');
@@ -1021,7 +1044,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [isOpen, exercise, name, group, image, image2]);
+    }, [isOpen, exercise, name, group, description, image, image2]);
     
     const [uploadingImage1, setUploadingImage1] = useState(false);
     const [uploadingImage2, setUploadingImage2] = useState(false);
@@ -1090,7 +1113,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <div onClick={() => {
                         // Сохраняем состояние перед открытием файлового диалога
                         if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                            const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                         }
                         fileRef.current?.click();
@@ -1104,7 +1127,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <div onClick={() => {
                         // Сохраняем состояние перед открытием файлового диалога
                         if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, image, image2 };
+                            const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                         }
                         fileRef2.current?.click();
@@ -1114,6 +1137,17 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <input ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handleFile2} />
                 </div>
                 <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} /></div>
+                
+                <div>
+                    <label className="text-sm text-zinc-400 mb-1 block">Описание</label>
+                    <textarea 
+                        value={description} 
+                        onChange={(e) => setDescription(e.target.value)} 
+                        className="w-full bg-zinc-900 text-zinc-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-zinc-600 placeholder:text-zinc-600 transition-all min-h-[100px] resize-none" 
+                        placeholder="Добавьте описание..." 
+                    />
+                </div>
+
                 <div>
                     <label className="text-sm text-zinc-400 mb-1 block">Группа</label>
                     <div className="flex flex-wrap gap-2">{groups.map((g: string) => <button key={g} onClick={() => setGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${group === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div>
@@ -1129,7 +1163,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                         });
                         // Очищаем сохраненное состояние после успешного сохранения
                         localStorage.removeItem(STORAGE_KEY);
-                        onSave(exercise.id, { name, muscleGroup: group, imageUrl: image, imageUrl2: image2 }); 
+                        onSave(exercise.id, { name, muscleGroup: group, description, imageUrl: image, imageUrl2: image2 }); 
                         onClose(); 
                     }} 
                     className="w-full h-12"
