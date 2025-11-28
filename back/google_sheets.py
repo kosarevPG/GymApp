@@ -203,30 +203,18 @@ class GoogleSheetsManager:
                 elif header_lower in ['image_url2', 'image2', 'фото2', 'фото_2']: image_url2_col = i
             
             logger.info(f"Columns map: Desc={description_col}, Img1={image_url_col}, Img2={image_url2_col}")
-            logger.info(f"Data keys received: {list(data.keys())}")
-            logger.info(f"Description in data: {'description' in data}")
-            if 'description' in data:
-                logger.info(f"Description value type: {type(data['description'])}, value: {repr(data['description'])[:50]}")
             
             if 'name' in data: 
                 self.exercises_sheet.update_cell(row_num, name_col, data['name'])
-                logger.info(f"Updated name")
             if 'muscleGroup' in data: 
                 self.exercises_sheet.update_cell(row_num, group_col, data['muscleGroup'])
-                logger.info(f"Updated muscleGroup")
             
             # ВАЖНО: Запись описания
             if 'description' in data:
                 # Если пришел null или undefined, пишем пустую строку
                 description = data['description'] if data['description'] is not None else ''
-                logger.info(f"Writing description to column {description_col}: {repr(description)[:50]}")
                 self.exercises_sheet.update_cell(row_num, description_col, description)
-                logger.info(f"Updated description: {description[:20] if description else 'empty'}...")
-                # Проверяем сохранение
-                saved_desc = self.exercises_sheet.cell(row_num, description_col).value
-                logger.info(f"Verified saved description: {repr(saved_desc)[:50] if saved_desc else 'empty'}")
-            else:
-                logger.warning("Description NOT in data dict!")
+                logger.info(f"Updated description: {description[:20]}...")
                 
             if 'imageUrl' in data: 
                 image_url = data['imageUrl'] if data['imageUrl'] is not None else ''
