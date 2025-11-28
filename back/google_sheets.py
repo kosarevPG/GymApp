@@ -460,52 +460,54 @@ class GoogleSheetsManager:
                 # Сортируем сеты по порядку (Order)
                 raw_sets.sort(key=lambda x: x.get('order', 0))
                 
+                # --- ЛОГИКА ОПРЕДЕЛЕНИЯ СУПЕРСЕТОВ ---
+                # Находим группы, в которых более одного уникального упражнения
+                superset_groups = {}
+                for s in raw_sets:
+                    gid = s['setGroupId']
+                    if gid:
+                        if gid not in superset_groups:
+                            superset_groups[gid] = set()
+                        superset_groups[gid].add(s['exerciseId'])
+                
+                real_superset_ids = {gid for gid, ex_ids in superset_groups.items() if len(ex_ids) > 1}
+                
                 # Группируем сеты в упражнения
                 exercises_list = []
                 current_block = None
                 
                 for s in raw_sets:
-                    # Определяем, является ли сет частью суперсета
-                    is_superset = bool(s['setGroupId'])
-                    
-                    # Логика: начинаем новый блок, если:
-                    # 1. Блока нет
-                    # 2. Это суперсет, и ID группы отличается от текущего
-                    # 3. Это не суперсет, и ID упражнения отличается от текущего
-                    # 4. Переход между суперсетом и обычным упражнением
+                    # Определяем, является ли этот сет частью НАСТОЯЩЕГО суперсета
+                    # Передаем ID группы только если это реальный суперсет
+                    effective_superset_id = s['setGroupId'] if (s['setGroupId'] and s['setGroupId'] in real_superset_ids) else None
                     
                     should_start_new = False
                     if not current_block:
                         should_start_new = True
                     else:
-                        if is_superset:
-                            if current_block['setGroupId'] != s['setGroupId']:
-                                should_start_new = True
-                        else:
-                            if current_block['isSuperset']:
-                                should_start_new = True  # Был суперсет, стал обычный
-                            elif current_block['exerciseId'] != s['exerciseId']:
-                                should_start_new = True  # Сменилось упражнение
-                    
+                        # Если упражнение сменилось - новый блок
+                        if current_block['exerciseId'] != s['exerciseId']:
+                            should_start_new = True
+                        # Если группа сменилась (даже если упражнение то же, что странно, но возможно)
+                        elif current_block['setGroupId'] != s['setGroupId']:
+                            should_start_new = True
+
                     if should_start_new:
-                        # Сохраняем старый блок
                         if current_block:
                             exercises_list.append({
                                 "name": current_block['name'],
-                                "supersetId": current_block['setGroupId'] or None,
+                                "supersetId": current_block['finalSupersetId'],  # Используем вычисленный ID
                                 "sets": current_block['sets']
                             })
                         
-                        # Создаем новый
                         current_block = {
                             "exerciseId": s['exerciseId'],
                             "name": s['name'],
-                            "setGroupId": s['setGroupId'],
-                            "isSuperset": is_superset,
+                            "setGroupId": s['setGroupId'],  # Сырой ID для проверки смены групп
+                            "finalSupersetId": effective_superset_id,  # ID для фронтенда
                             "sets": []
                         }
                     
-                    # Добавляем сет в текущий блок
                     if current_block:
                         current_block['sets'].append({
                             "weight": s['weight'],
@@ -513,11 +515,10 @@ class GoogleSheetsManager:
                             "rest": s['rest']
                         })
                 
-                # Добавляем последний блок
                 if current_block:
                     exercises_list.append({
                         "name": current_block['name'],
-                        "supersetId": current_block['setGroupId'] or None,
+                        "supersetId": current_block['finalSupersetId'],
                         "sets": current_block['sets']
                     })
 
