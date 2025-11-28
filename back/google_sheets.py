@@ -418,27 +418,94 @@ class GoogleSheetsManager:
                 muscle = ex_info.get('muscleGroup', 'Other')
                 
                 if date_val not in days:
-                    days[date_val] = {"date": date_val, "muscleGroups": set(), "exercises": []}
+                    days[date_val] = {"date": date_val, "muscleGroups": set(), "raw_sets": []}
                 
                 days[date_val]["muscleGroups"].add(muscle)
-                days[date_val]["exercises"].append({
-                    "exerciseName": ex_name,
+                days[date_val]["raw_sets"].append({
+                    "name": ex_name,
                     "weight": DataParser.to_float(row[weight_idx]),
                     "reps": DataParser.to_int(row[reps_idx]),
                     "rest": DataParser.to_float(row[rest_idx]),
                     "order": DataParser.to_int(row[order_idx]),
-                    "setGroupId": str(row[set_group_idx]).strip()
+                    "setGroupId": str(row[set_group_idx]).strip(),
+                    "exerciseId": ex_id
                 })
             
+            # Формируем структуру для фронтенда с группировкой упражнений
             result = []
             for date_val, day_data in days.items():
-                day_data["exercises"].sort(key=lambda x: x.get('order', 0))
+                raw_sets = day_data["raw_sets"]
+                # Сортируем сеты по порядку (Order)
+                raw_sets.sort(key=lambda x: x.get('order', 0))
+                
+                # Группируем сеты в упражнения
+                exercises_list = []
+                current_block = None
+                
+                for s in raw_sets:
+                    # Определяем, является ли сет частью суперсета
+                    is_superset = bool(s['setGroupId'])
+                    
+                    # Логика: начинаем новый блок, если:
+                    # 1. Блока нет
+                    # 2. Это суперсет, и ID группы отличается от текущего
+                    # 3. Это не суперсет, и ID упражнения отличается от текущего
+                    # 4. Переход между суперсетом и обычным упражнением
+                    
+                    should_start_new = False
+                    if not current_block:
+                        should_start_new = True
+                    else:
+                        if is_superset:
+                            if current_block['setGroupId'] != s['setGroupId']:
+                                should_start_new = True
+                        else:
+                            if current_block['isSuperset']:
+                                should_start_new = True  # Был суперсет, стал обычный
+                            elif current_block['exerciseId'] != s['exerciseId']:
+                                should_start_new = True  # Сменилось упражнение
+                    
+                    if should_start_new:
+                        # Сохраняем старый блок
+                        if current_block:
+                            exercises_list.append({
+                                "name": current_block['name'],
+                                "supersetId": current_block['setGroupId'] or None,
+                                "sets": current_block['sets']
+                            })
+                        
+                        # Создаем новый
+                        current_block = {
+                            "exerciseId": s['exerciseId'],
+                            "name": s['name'],
+                            "setGroupId": s['setGroupId'],
+                            "isSuperset": is_superset,
+                            "sets": []
+                        }
+                    
+                    # Добавляем сет в текущий блок
+                    if current_block:
+                        current_block['sets'].append({
+                            "weight": s['weight'],
+                            "reps": s['reps'],
+                            "rest": s['rest']
+                        })
+                
+                # Добавляем последний блок
+                if current_block:
+                    exercises_list.append({
+                        "name": current_block['name'],
+                        "supersetId": current_block['setGroupId'] or None,
+                        "sets": current_block['sets']
+                    })
+
+                # Теперь exercises_list не пустой - содержит сгруппированные упражнения!
                 result.append({
                     "id": date_val,
                     "date": date_val,
                     "muscleGroups": sorted(list(day_data["muscleGroups"])),
-                    "duration": "45м", 
-                    "exercises": [] 
+                    "duration": f"{len(exercises_list) * 5}м",  # Примерное время
+                    "exercises": exercises_list 
                 })
             
             result.sort(key=lambda x: x['date'], reverse=True)

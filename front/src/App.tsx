@@ -9,7 +9,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // --- CONFIG ---
 // Используем переменную окружения или localhost для разработки
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'; 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const WORKOUT_STORAGE_KEY = 'gym_workout_state_v2'; // Ключ для хранения сессии тренировки 
 
 // --- TYPES ---
 
@@ -647,25 +648,81 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
 };
 
 const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, haptic, notify }: any) => {
-  // Генерируем локальный ID при открытии экрана тренировки
-  const [localGroupId] = useState(() => crypto.randomUUID());
+  // ВОССТАНОВЛЕНИЕ СОСТОЯНИЯ: Проверяем наличие незавершенной тренировки
+  const getSavedSession = () => {
+    try {
+        const raw = localStorage.getItem(WORKOUT_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  };
+  
+  const savedSession = useMemo(() => getSavedSession(), []);
+
+  // Если есть сохраненная сессия, используем ее ID, иначе новый
+  const [localGroupId] = useState(() => savedSession?.localGroupId || crypto.randomUUID());
+  
   const timer = useTimer();
-  const [activeExercises, setActiveExercises] = useState<string[]>([initialExercise.id]);
-  const [sessionData, setSessionData] = useState<Record<string, ExerciseSessionData>>({});
+  
+  // Инициализируем из сохранения или с начальным упражнением
+  const [activeExercises, setActiveExercises] = useState<string[]>(
+      savedSession ? savedSession.activeExercises : [initialExercise.id]
+  );
+  
+  // Инициализируем данные упражнений
+  const [sessionData, setSessionData] = useState<Record<string, ExerciseSessionData>>(
+      savedSession ? savedSession.sessionData : {}
+  );
+
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [supersetSearchQuery, setSupersetSearchQuery] = useState('');
 
+  // АВТОСОХРАНЕНИЕ: Сохраняем при любом изменении данных
+  useEffect(() => {
+      // Сохраняем только если есть данные
+      if (Object.keys(sessionData).length > 0) {
+          const workoutState = {
+              localGroupId,
+              activeExercises,
+              sessionData,
+              timestamp: Date.now()
+          };
+          localStorage.setItem(WORKOUT_STORAGE_KEY, JSON.stringify(workoutState));
+      }
+  }, [localGroupId, activeExercises, sessionData]);
+
   const loadExerciseData = async (exId: string) => {
-    // Проверяем внутри функционального обновления, чтобы избежать проблем с замыканиями
+    // Не загружаем, если данные уже есть в стейте (например, восстановлены)
     setSessionData(prev => {
-        if (prev[exId]) return prev; // Данные уже загружены, не перезаписываем
-        return prev; // Временно возвращаем старое значение, загрузка будет асинхронной
+        // Если уже есть полные данные упражнения, не трогаем
+        if (prev[exId] && prev[exId].exercise) {
+             return prev; 
+        }
+        return prev; 
     });
     
+    // Загружаем историю (асинхронно)
     const { history, note } = await api.getHistory(exId);
+    
     setSessionData(prev => {
-        // Двойная проверка на случай, если данные загрузились между проверками
-        if (prev[exId]) return prev;
+        // Если пользователь уже ввел данные (пока грузилась история), не перезаписываем подходы!
+        // Но обновляем историю и заметку
+        const currentData = prev[exId];
+        const exercise = allExercises.find((e: Exercise) => e.id === exId);
+        
+        if (!exercise) return prev; // Если упражнение не найдено, выходим
+
+        // Если данные уже были (восстановлены или введены), обновляем только историю/заметку
+        if (currentData && currentData.sets && currentData.sets.length > 0) {
+             return {
+                 ...prev,
+                 [exId]: {
+                     ...currentData,
+                     exercise, // Обновляем объект упражнения на всякий случай
+                     history: history, // Подгрузилась история
+                     note: currentData.note || note || '' // Заметка: приоритет текущей
+                 }
+             };
+        }
         
         let initialSets: WorkoutSet[] = [];
         if (history.length > 0) {
@@ -770,6 +827,12 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       });
   };
 
+  // ЗАВЕРШЕНИЕ: Очищаем сохранение при выходе
+  const handleFinish = () => {
+      localStorage.removeItem(WORKOUT_STORAGE_KEY);
+      onBack();
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 pb-20">
       <TimerBlock timer={timer} onToggle={() => timer.isRunning ? timer.reset() : timer.start()} />
@@ -780,7 +843,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
         })}
       </div>
-      <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={onBack} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
+      <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={handleFinish} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
       <Modal isOpen={isAddModalOpen} onClose={() => { setIsAddModalOpen(false); setSupersetSearchQuery(''); }} title="Добавить в суперсет">
         <div className="space-y-3">
           <div className="relative">
@@ -822,7 +885,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           </div>
         </div>
       </Modal>
-      <div className="fixed bottom-6 left-6 z-20"><button onClick={onBack} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
+      <div className="fixed bottom-6 left-6 z-20"><button onClick={handleFinish} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
     </div>
   );
 };
@@ -1191,6 +1254,39 @@ const App = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState('');
+
+  // 1. АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ ТРЕНИРОВКИ ПРИ СТАРТЕ
+  useEffect(() => {
+    if (allExercises.length === 0) return; // Ждем, пока загрузятся все упражнения
+    
+    // Пытаемся найти сохраненную сессию
+    const saved = localStorage.getItem(WORKOUT_STORAGE_KEY);
+    if (saved) {
+        try {
+            const session = JSON.parse(saved);
+            // Если есть активные упражнения и данные не старше 24 часов
+            const isFresh = session.timestamp && (Date.now() - session.timestamp) < 86400000;
+            
+            if (isFresh && session.activeExercises && session.activeExercises.length > 0) {
+                // Находим первое упражнение, чтобы открыть экран тренировки с ним
+                const exId = session.activeExercises[0];
+                const ex = allExercises.find((e: Exercise) => e.id === exId);
+                
+                if (ex) {
+                    console.log('Restoring previous workout session...');
+                    setCurrentExercise(ex);
+                    setScreen('workout');
+                }
+            } else {
+                // Если данные устарели или пусты, очищаем
+                localStorage.removeItem(WORKOUT_STORAGE_KEY);
+            }
+        } catch (e) {
+            console.error('Failed to restore session', e);
+            localStorage.removeItem(WORKOUT_STORAGE_KEY);
+        }
+    }
+  }, [allExercises]);
 
   // Пинг сервера каждые 14 минут, чтобы предотвратить засыпание на бесплатном тарифе Render
   useEffect(() => {
