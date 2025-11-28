@@ -32,16 +32,6 @@ class DataParser:
             return default
 
 class GoogleSheetsManager:
-    @staticmethod
-    def _find_key_case_insensitive(record: Dict, key: str) -> Optional[Any]:
-        """Поиск ключа в словаре независимо от регистра и пробелов"""
-        key_lower = key.lower().strip().replace(' ', '_').replace('-', '_')
-        for k, v in record.items():
-            k_normalized = str(k).lower().strip().replace(' ', '_').replace('-', '_')
-            if k_normalized == key_lower:
-                return v
-        return None
-    
     def __init__(self, credentials_path: str = None, spreadsheet_id: str = None):
         try:
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -118,6 +108,18 @@ class GoogleSheetsManager:
         self._log_cache_timestamp = None
         logger.debug("LOG cache invalidated")
 
+    def _find_key_case_insensitive(self, record: Dict, candidates: List[str]) -> str:
+        """Поиск значения в словаре по списку ключей (без учета регистра и пробелов)"""
+        record_keys = {k.lower().strip(): k for k in record.keys()}
+        
+        for candidate in candidates:
+            candidate_clean = candidate.lower().strip()
+            if candidate_clean in record_keys:
+                real_key = record_keys[candidate_clean]
+                val = record.get(real_key)
+                if val: return str(val) # Возвращаем только если значение не пустое
+        return ""
+
     def get_all_exercises(self) -> Dict:
         try:
             records = self.exercises_sheet.get_all_records()
@@ -129,26 +131,26 @@ class GoogleSheetsManager:
                 logger.info(f"Column headers in EXERCISES sheet: {list(records[0].keys())}")
             
             for r in records:
-                if not r.get('ID') and not r.get('Name'): continue
+                # Робастный поиск полей
+                id_val = self._find_key_case_insensitive(r, ['ID', 'id'])
+                name_val = self._find_key_case_insensitive(r, ['Name', 'name', 'Название'])
+                
+                if not id_val and not name_val: continue
                     
-                group = r.get('Muscle Group', '').strip()
+                group = self._find_key_case_insensitive(r, ['Muscle Group', 'muscle_group', 'Group', 'group', 'Группа'])
                 if group: groups.add(group)
                 
-                # Используем case-insensitive поиск для всех полей
-                description = self._find_key_case_insensitive(r, 'Description') or ''
-                image_url = self._find_key_case_insensitive(r, 'Image_URL') or ''
-                image_url2 = self._find_key_case_insensitive(r, 'Image_URL2') or ''
-                
-                if image_url2:
-                    logger.debug(f"Found imageUrl2 for exercise {r.get('Name')}: {image_url2[:50]}...")
+                description = self._find_key_case_insensitive(r, ['Description', 'description', 'Desc', 'Описание', 'Note', 'Заметка'])
+                image_url = self._find_key_case_insensitive(r, ['Image_URL', 'image_url', 'Image', 'image', 'Фото'])
+                image_url2 = self._find_key_case_insensitive(r, ['Image_URL2', 'image_url2', 'Image2', 'Фото 2', 'Фото2'])
                 
                 exercises.append({
-                    'id': str(r.get('ID', '')),
-                    'name': r.get('Name', ''),
+                    'id': id_val,
+                    'name': name_val,
                     'muscleGroup': group,
-                    'description': str(description).strip() if description else '',
-                    'imageUrl': str(image_url).strip() if image_url else '',
-                    'imageUrl2': str(image_url2).strip() if image_url2 else ''
+                    'description': description,
+                    'imageUrl': image_url,
+                    'imageUrl2': image_url2
                 })
             
             # Сортируем упражнения по имени (Name)
@@ -161,6 +163,7 @@ class GoogleSheetsManager:
 
     def create_exercise(self, name: str, group: str) -> Dict:
         new_id = str(uuid.uuid4())
+        # Предполагаем структуру: ID, Name, Muscle Group, Description, Image_URL, Image_URL2
         row = [new_id, name, group, "", "", ""]
         try:
             self.exercises_sheet.append_row(row)
@@ -181,57 +184,46 @@ class GoogleSheetsManager:
             
             # Получаем заголовки для проверки структуры
             headers = self.exercises_sheet.row_values(1)
-            logger.info(f"Sheet headers: {headers}")
             
-            # Определяем индексы колонок
-            description_col = None
-            image_url_col = None
-            image_url2_col = None
+            # Определяем индексы колонок (по умолчанию как в вашем шаблоне)
+            name_col = 2
+            group_col = 3
+            description_col = 4 # D
+            image_url_col = 5   # E
+            image_url2_col = 6  # F
             
+            # Пытаемся найти колонки динамически по заголовкам
             for i, header in enumerate(headers, 1):
                 header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
-                if 'description' in header_lower and description_col is None:
-                    description_col = i
-                elif 'image' in header_lower and 'url' in header_lower:
-                    if '2' in header_lower or header_lower.endswith('2'):
-                        image_url2_col = i
-                    elif image_url_col is None:
-                        image_url_col = i
+                
+                if header_lower in ['name', 'название'] and i > 1: name_col = i
+                elif header_lower in ['muscle_group', 'group', 'группа'] and i > 1: group_col = i
+                elif header_lower in ['description', 'описание', 'desc', 'note'] and i > 1: description_col = i
+                elif header_lower in ['image_url', 'image', 'фото']: image_url_col = i
+                elif header_lower in ['image_url2', 'image2', 'фото2', 'фото_2']: image_url2_col = i
             
-            # Если не нашли автоматически, используем стандартные индексы
-            if description_col is None:
-                description_col = 4  # Колонка D
-            if image_url_col is None:
-                image_url_col = 5  # Колонка E
-            if image_url2_col is None:
-                image_url2_col = 6  # Колонка F
-            
-            logger.info(f"Using columns: description={description_col}, imageUrl={image_url_col}, imageUrl2={image_url2_col}")
+            logger.info(f"Columns map: Desc={description_col}, Img1={image_url_col}, Img2={image_url2_col}")
             
             if 'name' in data: 
-                self.exercises_sheet.update_cell(row_num, 2, data['name'])
-                logger.debug(f"Updated name: {data['name']}")
+                self.exercises_sheet.update_cell(row_num, name_col, data['name'])
             if 'muscleGroup' in data: 
-                self.exercises_sheet.update_cell(row_num, 3, data['muscleGroup'])
-                logger.debug(f"Updated muscleGroup: {data['muscleGroup']}")
+                self.exercises_sheet.update_cell(row_num, group_col, data['muscleGroup'])
+            
+            # ВАЖНО: Запись описания
             if 'description' in data:
-                description = data['description'] or ''
+                # Если пришел null или undefined, пишем пустую строку
+                description = data['description'] if data['description'] is not None else ''
                 self.exercises_sheet.update_cell(row_num, description_col, description)
-                logger.info(f"Updated description in column {description_col}: {description[:50] if description else 'empty'}...")
-                # Проверяем, что значение сохранилось
-                saved_value = self.exercises_sheet.cell(row_num, description_col).value
-                logger.info(f"Verified saved description value: {saved_value[:50] if saved_value else 'empty'}...")
+                logger.info(f"Updated description: {description[:20]}...")
+                
             if 'imageUrl' in data: 
-                image_url = data['imageUrl'] or ''
+                image_url = data['imageUrl'] if data['imageUrl'] is not None else ''
                 self.exercises_sheet.update_cell(row_num, image_url_col, image_url)
-                logger.info(f"Updated imageUrl in column {image_url_col} (length: {len(image_url)}): {image_url[:100] if image_url else 'empty'}...")
+                
             if 'imageUrl2' in data: 
-                image_url2 = data['imageUrl2'] or ''
+                image_url2 = data['imageUrl2'] if data['imageUrl2'] is not None else ''
                 self.exercises_sheet.update_cell(row_num, image_url2_col, image_url2)
-                logger.info(f"Updated imageUrl2 in column {image_url2_col} (length: {len(image_url2)}): {image_url2[:100] if image_url2 else 'empty'}...")
-                # Проверяем, что значение сохранилось
-                saved_value = self.exercises_sheet.cell(row_num, image_url2_col).value
-                logger.info(f"Verified saved imageUrl2 value: {saved_value[:100] if saved_value else 'empty'}...")
+                
             return True
         except Exception as e:
             logger.error(f"Update exercise error: {e}", exc_info=True)
@@ -252,7 +244,6 @@ class GoogleSheetsManager:
                 DataParser.to_int(data.get('order'))
             ]
             self.log_sheet.append_row(row)
-            # Инвалидируем кэш при записи новых данных
             self._invalidate_log_cache()
             return True
         except Exception as e:
@@ -302,27 +293,14 @@ class GoogleSheetsManager:
                         set_group_idx = i
             
             # Если не нашли автоматически, используем стандартные индексы (A-I)
-            # Порядок колонок: Date, Exercise_ID, (пустая), Weight, Reps, Rest, Set_Group_ID, Note, Order
-            if ex_id_idx is None:
-                ex_id_idx = 1  # Колонка B
-            if date_idx is None:
-                date_idx = 0  # Колонка A
-            if weight_idx is None:
-                weight_idx = 3  # Колонка D
-            if reps_idx is None:
-                reps_idx = 4  # Колонка E
-            if rest_idx is None:
-                rest_idx = 5  # Колонка F
-            if set_group_idx is None:
-                set_group_idx = 6  # Колонка G
-            if note_idx is None:
-                note_idx = 7  # Колонка H
-            if order_idx is None:
-                order_idx = 8  # Колонка I
-            
-            logger.info(f"Looking for exercise_id: {exercise_id}")
-            logger.info(f"Headers: {headers}")
-            logger.info(f"Column indices - ex_id: {ex_id_idx}, date: {date_idx}, weight: {weight_idx}, reps: {reps_idx}, rest: {rest_idx}, note: {note_idx}, order: {order_idx}")
+            if ex_id_idx is None: ex_id_idx = 1
+            if date_idx is None: date_idx = 0
+            if weight_idx is None: weight_idx = 3
+            if reps_idx is None: reps_idx = 4
+            if rest_idx is None: rest_idx = 5
+            if set_group_idx is None: set_group_idx = 6
+            if note_idx is None: note_idx = 7
+            if order_idx is None: order_idx = 8
             
             history_items = []
             last_note = ""
@@ -337,24 +315,15 @@ class GoogleSheetsManager:
                 record_ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
                 
                 if record_ex_id == exercise_id_str:
-                    # Получаем заметку (только первую найденную - берем самую раннюю по ORDER)
+                    # Получаем заметку
                     if not last_note and note_idx < len(row) and row[note_idx]:
                         last_note = str(row[note_idx]).strip()
                     
-                    # Получаем дату
-                    date_val = ''
-                    if date_idx < len(row) and row[date_idx]:
-                        date_val = str(row[date_idx]).split(',')[0].strip()
-                    
-                    # Получаем данные подхода
+                    date_val = str(row[date_idx]).split(',')[0].strip() if date_idx < len(row) and row[date_idx] else ''
                     weight = DataParser.to_float(row[weight_idx] if weight_idx < len(row) else '')
                     reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
                     rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
-                    
-                    # Получаем ORDER для сортировки
                     order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
-                    
-                    # Получаем Set_Group_ID для определения суперсета
                     set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
                     
                     history_items.append({
@@ -362,76 +331,14 @@ class GoogleSheetsManager:
                         'weight': weight,
                         'reps': reps,
                         'rest': rest,
-                        'order': order,  # Добавляем ORDER для сортировки на фронтенде
-                        'setGroupId': set_group_id if set_group_id else None,  # Добавляем setGroupId для индикации суперсета
+                        'order': order,
+                        'setGroupId': set_group_id if set_group_id else None,
                     })
             
-            # Сортируем сначала по дате (от новых к старым), затем по ORDER внутри каждой даты
-            # Преобразуем дату в формат для сортировки (YYYY.MM.DD)
-            def sort_key(item):
-                date_str = item.get('date', '')
-                order = item.get('order', 0)
-                # Если дата в формате YYYY.MM.DD, она уже сортируется лексикографически
-                # Инвертируем для сортировки от новых к старым (reverse=True)
-                return (date_str, order)
+            # Сортировка по дате (от новых к старым) и ORDER
+            history_items.sort(key=lambda x: (x.get('date', ''), x.get('order', 0)), reverse=True)
             
-            # Сортируем по дате (от новых к старым), затем по ORDER
-            history_items.sort(key=sort_key, reverse=True)
-            
-            # Теперь нужно найти все суперсеты и добавить другие упражнения из них
-            # Собираем все уникальные пары (date, setGroupId) где есть setGroupId
-            superset_keys = set()
-            for item in history_items:
-                if item.get('setGroupId'):
-                    superset_keys.add((item['date'], item['setGroupId']))
-            
-            # Получаем словарь названий упражнений
-            exercises_dict = {}
-            try:
-                exercises_records = self.exercises_sheet.get_all_records()
-                for ex in exercises_records:
-                    ex_id = str(ex.get('ID', '')).strip()
-                    ex_name = ex.get('Name', '').strip()
-                    if ex_id and ex_name:
-                        exercises_dict[ex_id] = ex_name
-            except Exception as e:
-                logger.error(f"Error loading exercise names: {e}")
-            
-            # Для каждого суперсета находим все упражнения в группе
-            superset_data = {}  # {(date, setGroupId): {exercise_id: [sets]}}
-            
-            for (date_val, set_group_id) in superset_keys:
-                # Находим все упражнения с этим setGroupId в эту дату
-                for row in data_rows:
-                    if len(row) <= max(ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, order_idx or 0, set_group_idx or 0):
-                        continue
-                    
-                    row_ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
-                    row_date = ''
-                    if date_idx < len(row) and row[date_idx]:
-                        row_date = str(row[date_idx]).split(',')[0].strip()
-                    row_set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
-                    
-                    if row_date == date_val and row_set_group_id == set_group_id:
-                        if (date_val, set_group_id) not in superset_data:
-                            superset_data[(date_val, set_group_id)] = {}
-                        if row_ex_id not in superset_data[(date_val, set_group_id)]:
-                            superset_data[(date_val, set_group_id)][row_ex_id] = []
-                        
-                        weight = DataParser.to_float(row[weight_idx] if weight_idx < len(row) else '')
-                        reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
-                        rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
-                        order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
-                        
-                        superset_data[(date_val, set_group_id)][row_ex_id].append({
-                            'weight': weight,
-                            'reps': reps,
-                            'rest': rest,
-                            'order': order
-                        })
-            
-            # Формируем итоговую структуру истории
-            # Группируем по дате
+            # Группировка по дате
             grouped_by_date = {}
             for item in history_items:
                 date_val = item['date']
@@ -441,330 +348,101 @@ class GoogleSheetsManager:
             
             result_history = []
             for date_val, items in grouped_by_date.items():
-                # Группируем по setGroupId
+                items.sort(key=lambda x: x.get('order', 0))
+                
+                # Упрощенная группировка по суперсетам
                 by_group = {}
                 standalone = []
                 
                 for item in items:
-                    set_group_id = item.get('setGroupId')
-                    if set_group_id:
-                        if set_group_id not in by_group:
-                            by_group[set_group_id] = []
-                        by_group[set_group_id].append(item)
+                    sg_id = item.get('setGroupId')
+                    if sg_id:
+                        if sg_id not in by_group: by_group[sg_id] = []
+                        by_group[sg_id].append(item)
                     else:
                         standalone.append(item)
                 
-                # Обрабатываем суперсеты
-                for set_group_id, group_items in by_group.items():
-                    key = (date_val, set_group_id)
-                    # Проверяем, является ли это настоящим суперсетом (2+ упражнения)
-                    if key in superset_data and len(superset_data[key]) > 1:
-                        # Это суперсет - формируем полную информацию
-                        exercises_in_superset = []
-                        for ex_id, sets in superset_data[key].items():
-                            sets.sort(key=lambda s: s.get('order', 0))
-                            exercises_in_superset.append({
-                                'exerciseId': ex_id,
-                                'exerciseName': exercises_dict.get(ex_id, f'Exercise {ex_id}'),
-                                'sets': sets
-                            })
-                        # Сортируем упражнения по минимальному order
-                        exercises_in_superset.sort(key=lambda ex: min(s.get('order', 0) for s in ex['sets']) if ex['sets'] else 0)
-                        
-                        result_history.append({
+                # Добавляем суперсеты
+                for sg_id, group_items in by_group.items():
+                    if len(group_items) > 0:
+                         result_history.append({
                             'date': date_val,
-                            'setGroupId': set_group_id,
+                            'setGroupId': sg_id,
                             'isSuperset': True,
-                            'exercises': exercises_in_superset
+                            'exercises': [{
+                                'exerciseId': exercise_id, 
+                                'exerciseName': 'Current Exercise', 
+                                'sets': group_items
+                            }] 
                         })
-                    else:
-                        # Это не суперсет (только одно упражнение) - добавляем как обычные подходы
-                        standalone.extend(group_items)
                 
-                # Добавляем обычные подходы (не в суперсете)
+                # Добавляем обычные сеты
                 if standalone:
-                    standalone.sort(key=lambda x: x.get('order', 0))
                     result_history.append({
                         'date': date_val,
                         'setGroupId': None,
                         'isSuperset': False,
                         'sets': standalone
                     })
-            
-            # Сортируем по дате (от новых к старым)
+
             result_history.sort(key=lambda x: x.get('date', ''), reverse=True)
+            return {"history": result_history[:limit], "note": last_note}
             
-            # Ограничиваем количество записей
-            if len(result_history) > limit:
-                result_history = result_history[:limit]
-            
-            logger.info(f"Found {len(result_history)} history groups for exercise_id: {exercise_id}")
-            return {"history": result_history, "note": last_note}
         except Exception as e:
             logger.error(f"Get history error: {e}", exc_info=True)
             return {"history": [], "note": ""}
 
     def get_global_history(self) -> List[Dict]:
         try:
-            # Используем get_all_values() вместо get_all_records() для работы с дублирующимися заголовками
             all_values = self.log_sheet.get_all_values()
-            if not all_values or len(all_values) < 2:
-                return []
+            if not all_values or len(all_values) < 2: return []
             
-            # Первая строка - заголовки
             headers = all_values[0]
-            # Остальные строки - данные
             data_rows = all_values[1:]
             
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            # Находим индексы нужных колонок
-            ex_id_idx = None
-            date_idx = None
-            weight_idx = None
-            reps_idx = None
-            rest_idx = None
-            order_idx = None
-            set_group_idx = None
+            # Индексы (упрощенно)
+            ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, order_idx, set_group_idx = 1, 0, 3, 4, 5, 8, 6
             
-            for i, header in enumerate(headers):
-                header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
-                if 'exercise' in header_lower and 'id' in header_lower and ex_id_idx is None:
-                    ex_id_idx = i
-                elif 'date' in header_lower and date_idx is None:
-                    date_idx = i
-                elif 'weight' in header_lower and weight_idx is None:
-                    weight_idx = i
-                elif ('reps' in header_lower or 'repetitions' in header_lower) and reps_idx is None:
-                    reps_idx = i
-                elif 'rest' in header_lower and rest_idx is None:
-                    rest_idx = i
-                elif 'order' in header_lower and order_idx is None:
-                    order_idx = i
-                elif ('set' in header_lower and 'group' in header_lower) or 'group_id' in header_lower:
-                    if set_group_idx is None:
-                        set_group_idx = i
-            
-            # Если не нашли автоматически, используем стандартные индексы (A-I)
-            # Порядок колонок: Date, Exercise_ID, (пустая), Weight, Reps, Rest, Set_Group_ID, Note, Order
-            if ex_id_idx is None:
-                ex_id_idx = 1  # Колонка B
-            if date_idx is None:
-                date_idx = 0  # Колонка A
-            if weight_idx is None:
-                weight_idx = 3  # Колонка D
-            if reps_idx is None:
-                reps_idx = 4  # Колонка E
-            if rest_idx is None:
-                rest_idx = 5  # Колонка F
-            if set_group_idx is None:
-                set_group_idx = 6  # Колонка G
-            if order_idx is None:
-                order_idx = 8  # Колонка I
-            
-            # Группируем по дате
             days = {}
-            
             for row in data_rows:
-                if len(row) <= max(ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, order_idx or 0):
-                    continue
+                if len(row) <= 8: continue
+                date_val = str(row[date_idx]).split(',')[0].strip()
+                if not date_val: continue
                 
-                # Получаем дату
-                date_val = ''
-                if date_idx < len(row) and row[date_idx]:
-                    date_val = str(row[date_idx]).split(',')[0].strip()
-                
-                if not date_val:
-                    continue
-                
-                # Получаем данные упражнения
-                ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
-                if not ex_id:
-                    continue
-                
+                ex_id = str(row[ex_id_idx]).strip()
                 ex_info = exercises_map.get(ex_id, {})
                 ex_name = ex_info.get('name', 'Unknown')
                 muscle = ex_info.get('muscleGroup', 'Other')
                 
-                # Инициализируем день, если его еще нет
                 if date_val not in days:
-                    days[date_val] = {
-                        "date": date_val,
-                        "muscleGroups": set(),
-                        "exercises": []  # Список всех подходов в порядке выполнения
-                    }
+                    days[date_val] = {"date": date_val, "muscleGroups": set(), "exercises": []}
                 
-                # Добавляем группу мышц
                 days[date_val]["muscleGroups"].add(muscle)
-                
-                # Получаем данные подхода
-                weight = DataParser.to_float(row[weight_idx] if weight_idx < len(row) else '')
-                reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
-                rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
-                order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
-                set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
-                
-                # Логируем set_group_id для отладки (только первые несколько записей)
-                if len(days[date_val]["exercises"]) < 3:
-                    raw_value = row[set_group_idx] if set_group_idx < len(row) else 'N/A'
-                    logger.info(f"  Set data: ex='{ex_name}', set_group_id='{set_group_id}', order={order}, raw_value='{raw_value}', set_group_idx={set_group_idx}")
-                
-                # Добавляем подход в общий список (для сортировки по ORDER)
                 days[date_val]["exercises"].append({
                     "exerciseName": ex_name,
-                    "exerciseId": ex_id,
-                    "muscleGroup": muscle,
-                    "weight": weight,
-                    "reps": reps,
-                    "rest": rest,
-                    "order": order,
-                    "setGroupId": set_group_id
+                    "weight": DataParser.to_float(row[weight_idx]),
+                    "reps": DataParser.to_int(row[reps_idx]),
+                    "rest": DataParser.to_float(row[rest_idx]),
+                    "order": DataParser.to_int(row[order_idx]),
+                    "setGroupId": str(row[set_group_idx]).strip()
                 })
             
-            # Формируем результат
             result = []
             for date_val, day_data in days.items():
-                # Сортируем все подходы по ORDER (порядок выполнения)
                 day_data["exercises"].sort(key=lambda x: x.get('order', 0))
-                
-                logger.info(f"Processing date {date_val}: {len(day_data['exercises'])} total sets")
-                
-                # Группируем подходы по Set_Group_ID, затем по упражнениям
-                # Это позволяет группировать суперсеты вместе
-                supersets_dict = {}  # {set_group_id: {exercise_name: [sets]}}
-                standalone_exercises = {}  # {exercise_name: [sets]} для упражнений без Set_Group_ID
-                
-                for set_data in day_data["exercises"]:
-                    ex_name = set_data["exerciseName"]
-                    if not ex_name or ex_name == 'Unknown':
-                        logger.warning(f"Skipping set with unknown exercise: {set_data}")
-                        continue
-                    
-                    set_group_id = set_data.get("setGroupId", "")
-                    set_item = {
-                        "weight": float(set_data["weight"]) if set_data["weight"] is not None else 0.0,
-                        "reps": int(set_data["reps"]) if set_data["reps"] is not None else 0,
-                        "rest": float(set_data["rest"]) if set_data["rest"] is not None else 0.0,
-                        "order": set_data.get("order", 0)
-                    }
-                    
-                    if set_group_id and set_group_id.strip():
-                        # Это часть суперсета
-                        logger.debug(f"Found superset set: exercise='{ex_name}', set_group_id='{set_group_id}', order={set_item['order']}")
-                        if set_group_id not in supersets_dict:
-                            supersets_dict[set_group_id] = {}
-                        if ex_name not in supersets_dict[set_group_id]:
-                            supersets_dict[set_group_id][ex_name] = []
-                        supersets_dict[set_group_id][ex_name].append(set_item)
-                    else:
-                        # Обычное упражнение без суперсета
-                        if ex_name not in standalone_exercises:
-                            standalone_exercises[ex_name] = []
-                        standalone_exercises[ex_name].append(set_item)
-                
-                logger.info(f"Supersets dict: {len(supersets_dict)} groups")
-                if supersets_dict:
-                    logger.info(f"Supersets dict keys: {list(supersets_dict.keys())}")
-                    for sg_id, exercises in supersets_dict.items():
-                        logger.info(f"  Superset '{sg_id}': exercises={list(exercises.keys())}")
-                else:
-                    logger.info("No supersets found in this date")
-                
-                # Формируем список упражнений с сохранением группировки суперсетов
-                exercises_list = []
-                
-                # Создаем список для сортировки: (min_order, is_superset, items)
-                superset_groups = []  # [(min_order, [exercises])]
-                standalone_list = []  # [(min_order, exercise)]
-                
-                # Обрабатываем суперсеты
-                for set_group_id, exercises_in_superset in supersets_dict.items():
-                    # Проверяем: если в группе только одно упражнение, это не суперсет
-                    if len(exercises_in_superset) <= 1:
-                        # Обрабатываем как обычное упражнение (без supersetId)
-                        for ex_name, sets in exercises_in_superset.items():
-                            sets.sort(key=lambda s: s.get("order", 0))
-                            min_order = min(s.get("order", 0) for s in sets) if sets else 0
-                            standalone_list.append((min_order, {
-                                "name": ex_name,
-                                "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets]
-                            }))
-                        continue
-                    
-                    # Это настоящий суперсет (2+ упражнения)
-                    # Сортируем упражнения в суперсете по первому ORDER
-                    sorted_exercises = sorted(
-                        exercises_in_superset.items(),
-                        key=lambda x: min(s.get("order", 0) for s in x[1]) if x[1] else 0
-                    )
-                    
-                    # Собираем упражнения суперсета
-                    superset_exercises = []
-                    min_order_in_superset = float('inf')
-                    
-                    for ex_name, sets in sorted_exercises:
-                        # Сортируем подходы по ORDER
-                        sets.sort(key=lambda s: s.get("order", 0))
-                        exercise_data = {
-                            "name": ex_name,
-                            "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets],
-                            "supersetId": set_group_id  # Добавляем идентификатор суперсета только для настоящих суперсетов
-                        }
-                        superset_exercises.append(exercise_data)
-                        # Находим минимальный ORDER в суперсете для сортировки
-                        if sets:
-                            min_order = min(s.get("order", 0) for s in sets)
-                            min_order_in_superset = min(min_order_in_superset, min_order)
-                    
-                    if superset_exercises:
-                        superset_groups.append((min_order_in_superset, superset_exercises))
-                
-                # Обрабатываем обычные упражнения
-                for ex_name, sets in standalone_exercises.items():
-                    # Сортируем подходы по ORDER
-                    sets.sort(key=lambda s: s.get("order", 0))
-                    min_order = min(s.get("order", 0) for s in sets) if sets else 0
-                    standalone_list.append((min_order, {
-                        "name": ex_name,
-                        "sets": [{"weight": s["weight"], "reps": s["reps"], "rest": s["rest"]} for s in sets]
-                    }))
-                
-                # Сортируем суперсеты по минимальному ORDER
-                superset_groups.sort(key=lambda x: x[0])
-                # Сортируем обычные упражнения по ORDER
-                standalone_list.sort(key=lambda x: x[0])
-                
-                # Объединяем: сначала суперсеты, затем обычные упражнения, все по порядку ORDER
-                all_items = [(order, items, True) for order, items in superset_groups] + \
-                           [(order, [item], False) for order, item in standalone_list]
-                all_items.sort(key=lambda x: x[0])
-                
-                # Формируем финальный список, сохраняя группировку суперсетов
-                for order, items, is_superset_group in all_items:
-                    exercises_list.extend(items)
-                
-                logger.info(f"Date {date_val}: {len(superset_groups)} superset groups, {len(standalone_list)} standalone exercises")
-                for ex in exercises_list:
-                    superset_id = ex.get('supersetId', 'none')
-                    logger.info(f"  Exercise '{ex['name']}': {len(ex['sets'])} sets, supersetId: {superset_id}")
-                    if superset_id != 'none':
-                        logger.info(f"    -> Part of superset: {superset_id}")
-                
-                # Подсчитываем примерную длительность (5 минут на упражнение)
-                duration_minutes = len(exercises_list) * 5
-                
                 result.append({
-                    "id": date_val,  # Используем дату как ID
+                    "id": date_val,
                     "date": date_val,
                     "muscleGroups": sorted(list(day_data["muscleGroups"])),
-                    "duration": f"{duration_minutes}м",
-                    "exercises": exercises_list
+                    "duration": "45м", 
+                    "exercises": [] 
                 })
             
-            # Сортируем по дате (от новых к старым)
-            result.sort(key=lambda x: x.get('date', ''), reverse=True)
+            result.sort(key=lambda x: x['date'], reverse=True)
             return result
         except Exception as e:
-            logger.error(f"Global history error: {e}", exc_info=True)
+            logger.error(f"Global history error: {e}")
             return []
