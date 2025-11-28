@@ -133,6 +133,8 @@ async def api_update_exercise(request):
         data = await request.json()
         updates = data.get('updates', {})
         logger.info(f"Updating exercise {data.get('id')} with updates: {list(updates.keys())}")
+        if 'description' in updates:
+            logger.info(f"Description: {updates['description'][:100] if updates['description'] else 'empty'}...")
         if 'imageUrl' in updates:
             logger.info(f"ImageUrl: {updates['imageUrl'][:100] if updates['imageUrl'] else 'empty'}...")
         if 'imageUrl2' in updates:

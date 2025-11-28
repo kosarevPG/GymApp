@@ -170,24 +170,29 @@ class GoogleSheetsManager:
             logger.info(f"Sheet headers: {headers}")
             
             # Определяем индексы колонок
+            description_col = None
             image_url_col = None
             image_url2_col = None
             
             for i, header in enumerate(headers, 1):
                 header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
-                if 'image' in header_lower and 'url' in header_lower:
+                if 'description' in header_lower and description_col is None:
+                    description_col = i
+                elif 'image' in header_lower and 'url' in header_lower:
                     if '2' in header_lower or header_lower.endswith('2'):
                         image_url2_col = i
                     elif image_url_col is None:
                         image_url_col = i
             
             # Если не нашли автоматически, используем стандартные индексы
+            if description_col is None:
+                description_col = 4  # Колонка D
             if image_url_col is None:
                 image_url_col = 5  # Колонка E
             if image_url2_col is None:
                 image_url2_col = 6  # Колонка F
             
-            logger.info(f"Using columns: imageUrl={image_url_col}, imageUrl2={image_url2_col}")
+            logger.info(f"Using columns: description={description_col}, imageUrl={image_url_col}, imageUrl2={image_url2_col}")
             
             if 'name' in data: 
                 self.exercises_sheet.update_cell(row_num, 2, data['name'])
@@ -197,8 +202,11 @@ class GoogleSheetsManager:
                 logger.debug(f"Updated muscleGroup: {data['muscleGroup']}")
             if 'description' in data:
                 description = data['description'] or ''
-                self.exercises_sheet.update_cell(row_num, 4, description)
-                logger.debug(f"Updated description: {description[:50] if description else 'empty'}...")
+                self.exercises_sheet.update_cell(row_num, description_col, description)
+                logger.info(f"Updated description in column {description_col}: {description[:50] if description else 'empty'}...")
+                # Проверяем, что значение сохранилось
+                saved_value = self.exercises_sheet.cell(row_num, description_col).value
+                logger.info(f"Verified saved description value: {saved_value[:50] if saved_value else 'empty'}...")
             if 'imageUrl' in data: 
                 image_url = data['imageUrl'] or ''
                 self.exercises_sheet.update_cell(row_num, image_url_col, image_url)
