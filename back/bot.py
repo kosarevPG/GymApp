@@ -131,14 +131,16 @@ async def api_create_exercise(request):
 async def api_update_exercise(request):
     try:
         data = await request.json()
+        logger.info(f"Received update request: {json.dumps(data, ensure_ascii=False)}") # ЛОГИРУЕМ ВЕСЬ ЗАПРОС
+        
         updates = data.get('updates', {})
-        logger.info(f"Updating exercise {data.get('id')} with updates: {list(updates.keys())}")
+        logger.info(f"Updates keys: {list(updates.keys())}")
+        
         if 'description' in updates:
-            logger.info(f"Description: {updates['description'][:100] if updates['description'] else 'empty'}...")
-        if 'imageUrl' in updates:
-            logger.info(f"ImageUrl: {updates['imageUrl'][:100] if updates['imageUrl'] else 'empty'}...")
-        if 'imageUrl2' in updates:
-            logger.info(f"ImageUrl2: {updates['imageUrl2'][:100] if updates['imageUrl2'] else 'empty'}...")
+            logger.info(f"Description present in updates. Value length: {len(updates['description'])}")
+        else:
+            logger.warning("Description MISSING in updates!")
+
         if sheets.update_exercise(data.get('id'), updates):
             return json_response({"status": "success"})
         return json_response({"error": "Failed"}, 500)

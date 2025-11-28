@@ -32,6 +32,16 @@ class DataParser:
             return default
 
 class GoogleSheetsManager:
+    @staticmethod
+    def _find_key_case_insensitive(record: Dict, key: str) -> Optional[Any]:
+        """Поиск ключа в словаре независимо от регистра и пробелов"""
+        key_lower = key.lower().strip().replace(' ', '_').replace('-', '_')
+        for k, v in record.items():
+            k_normalized = str(k).lower().strip().replace(' ', '_').replace('-', '_')
+            if k_normalized == key_lower:
+                return v
+        return None
+    
     def __init__(self, credentials_path: str = None, spreadsheet_id: str = None):
         try:
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -124,7 +134,11 @@ class GoogleSheetsManager:
                 group = r.get('Muscle Group', '').strip()
                 if group: groups.add(group)
                 
-                image_url2 = r.get('Image_URL2', '') or r.get('Image_URL2 ', '')  # Проверяем с пробелом на конце
+                # Используем case-insensitive поиск для всех полей
+                description = self._find_key_case_insensitive(r, 'Description') or ''
+                image_url = self._find_key_case_insensitive(r, 'Image_URL') or ''
+                image_url2 = self._find_key_case_insensitive(r, 'Image_URL2') or ''
+                
                 if image_url2:
                     logger.debug(f"Found imageUrl2 for exercise {r.get('Name')}: {image_url2[:50]}...")
                 
@@ -132,9 +146,9 @@ class GoogleSheetsManager:
                     'id': str(r.get('ID', '')),
                     'name': r.get('Name', ''),
                     'muscleGroup': group,
-                    'description': r.get('Description', ''),
-                    'imageUrl': r.get('Image_URL', ''),
-                    'imageUrl2': image_url2
+                    'description': str(description).strip() if description else '',
+                    'imageUrl': str(image_url).strip() if image_url else '',
+                    'imageUrl2': str(image_url2).strip() if image_url2 else ''
                 })
             
             # Сортируем упражнения по имени (Name)
