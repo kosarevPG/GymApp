@@ -326,6 +326,17 @@ const NoteWidget = ({ initialValue, onChange }: any) => {
 };
 
 const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
+  // Логируем структуру данных для отладки
+  useEffect(() => {
+    if (isOpen && history) {
+      console.log('HistoryListModal - history data:', history);
+      console.log('HistoryListModal - history type:', Array.isArray(history) ? 'array' : typeof history);
+      if (Array.isArray(history) && history.length > 0) {
+        console.log('HistoryListModal - first item:', history[0]);
+      }
+    }
+  }, [isOpen, history]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`История: ${exerciseName}`}>
       <div className="space-y-6">
@@ -653,24 +664,41 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
         
         let initialSets: WorkoutSet[] = [];
         if (history.length > 0) {
-            // История уже отсортирована на бэкенде от новых к старым
-            // Берем первую дату (самую новую)
-            const lastDate = history[0]?.date;
+            // Новая структура: history - массив групп с isSuperset
+            // Берем первую группу (самую новую дату)
+            const firstGroup = history[0];
+            const lastDate = firstGroup?.date;
             
             if (lastDate) {
-                // Фильтруем по последней дате и сортируем по ORDER (от старых к новым внутри даты)
-                const lastDateItems = history
-                    .filter((h: HistoryItem) => h.date === lastDate)
-                    .sort((a: HistoryItem, b: HistoryItem) => (a.order || 0) - (b.order || 0));
+                // Если это суперсет, находим подходы текущего упражнения
+                if (firstGroup.isSuperset && firstGroup.exercises) {
+                    const currentExercise = firstGroup.exercises.find((ex: any) => ex.exerciseId === exId);
+                    if (currentExercise && currentExercise.sets) {
+                        initialSets = currentExercise.sets.map((s: any) => ({
+                            id: crypto.randomUUID(), 
+                            weight: s.weight.toString(), 
+                            reps: s.reps.toString(), 
+                            rest: s.rest.toString(), 
+                            completed: false, 
+                            prevWeight: s.weight
+                        }));
+                    }
+                } else if (firstGroup.sets) {
+                    // Обычные подходы (не в суперсете)
+                    initialSets = firstGroup.sets.map((s: any) => ({
+                        id: crypto.randomUUID(), 
+                        weight: s.weight.toString(), 
+                        reps: s.reps.toString(), 
+                        rest: s.rest.toString(), 
+                        completed: false, 
+                        prevWeight: s.weight
+                    }));
+                }
                 
-                initialSets = lastDateItems.map((h: HistoryItem) => ({
-                    id: crypto.randomUUID(), 
-                    weight: h.weight.toString(), 
-                    reps: h.reps.toString(), 
-                    rest: h.rest.toString(), 
-                    completed: false, 
-                    prevWeight: h.weight
-                }));
+                // Если не нашли подходы, создаем пустой сет
+                if (initialSets.length === 0) {
+                    initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
+                }
             } else {
                 // Если даты нет, создаем пустой сет
                 initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
