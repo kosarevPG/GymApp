@@ -352,12 +352,128 @@ class GoogleSheetsManager:
             # Сортируем по дате (от новых к старым), затем по ORDER
             history_items.sort(key=sort_key, reverse=True)
             
-            # Ограничиваем количество записей
-            if len(history_items) > limit:
-                history_items = history_items[:limit]
+            # Теперь нужно найти все суперсеты и добавить другие упражнения из них
+            # Собираем все уникальные пары (date, setGroupId) где есть setGroupId
+            superset_keys = set()
+            for item in history_items:
+                if item.get('setGroupId'):
+                    superset_keys.add((item['date'], item['setGroupId']))
             
-            logger.info(f"Found {len(history_items)} history items for exercise_id: {exercise_id}")
-            return {"history": history_items, "note": last_note}
+            # Получаем словарь названий упражнений
+            exercises_dict = {}
+            try:
+                exercises_records = self.exercises_sheet.get_all_records()
+                for ex in exercises_records:
+                    ex_id = str(ex.get('ID', '')).strip()
+                    ex_name = ex.get('Name', '').strip()
+                    if ex_id and ex_name:
+                        exercises_dict[ex_id] = ex_name
+            except Exception as e:
+                logger.error(f"Error loading exercise names: {e}")
+            
+            # Для каждого суперсета находим все упражнения в группе
+            superset_data = {}  # {(date, setGroupId): {exercise_id: [sets]}}
+            
+            for (date_val, set_group_id) in superset_keys:
+                # Находим все упражнения с этим setGroupId в эту дату
+                for row in data_rows:
+                    if len(row) <= max(ex_id_idx, date_idx, weight_idx, reps_idx, rest_idx, order_idx or 0, set_group_idx or 0):
+                        continue
+                    
+                    row_ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
+                    row_date = ''
+                    if date_idx < len(row) and row[date_idx]:
+                        row_date = str(row[date_idx]).split(',')[0].strip()
+                    row_set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
+                    
+                    if row_date == date_val and row_set_group_id == set_group_id:
+                        if (date_val, set_group_id) not in superset_data:
+                            superset_data[(date_val, set_group_id)] = {}
+                        if row_ex_id not in superset_data[(date_val, set_group_id)]:
+                            superset_data[(date_val, set_group_id)][row_ex_id] = []
+                        
+                        weight = DataParser.to_float(row[weight_idx] if weight_idx < len(row) else '')
+                        reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
+                        rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
+                        order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
+                        
+                        superset_data[(date_val, set_group_id)][row_ex_id].append({
+                            'weight': weight,
+                            'reps': reps,
+                            'rest': rest,
+                            'order': order
+                        })
+            
+            # Формируем итоговую структуру истории
+            # Группируем по дате
+            grouped_by_date = {}
+            for item in history_items:
+                date_val = item['date']
+                if date_val not in grouped_by_date:
+                    grouped_by_date[date_val] = []
+                grouped_by_date[date_val].append(item)
+            
+            result_history = []
+            for date_val, items in grouped_by_date.items():
+                # Группируем по setGroupId
+                by_group = {}
+                standalone = []
+                
+                for item in items:
+                    set_group_id = item.get('setGroupId')
+                    if set_group_id:
+                        if set_group_id not in by_group:
+                            by_group[set_group_id] = []
+                        by_group[set_group_id].append(item)
+                    else:
+                        standalone.append(item)
+                
+                # Обрабатываем суперсеты
+                for set_group_id, group_items in by_group.items():
+                    key = (date_val, set_group_id)
+                    # Проверяем, является ли это настоящим суперсетом (2+ упражнения)
+                    if key in superset_data and len(superset_data[key]) > 1:
+                        # Это суперсет - формируем полную информацию
+                        exercises_in_superset = []
+                        for ex_id, sets in superset_data[key].items():
+                            sets.sort(key=lambda s: s.get('order', 0))
+                            exercises_in_superset.append({
+                                'exerciseId': ex_id,
+                                'exerciseName': exercises_dict.get(ex_id, f'Exercise {ex_id}'),
+                                'sets': sets
+                            })
+                        # Сортируем упражнения по минимальному order
+                        exercises_in_superset.sort(key=lambda ex: min(s.get('order', 0) for s in ex['sets']) if ex['sets'] else 0)
+                        
+                        result_history.append({
+                            'date': date_val,
+                            'setGroupId': set_group_id,
+                            'isSuperset': True,
+                            'exercises': exercises_in_superset
+                        })
+                    else:
+                        # Это не суперсет (только одно упражнение) - добавляем как обычные подходы
+                        standalone.extend(group_items)
+                
+                # Добавляем обычные подходы (не в суперсете)
+                if standalone:
+                    standalone.sort(key=lambda x: x.get('order', 0))
+                    result_history.append({
+                        'date': date_val,
+                        'setGroupId': None,
+                        'isSuperset': False,
+                        'sets': standalone
+                    })
+            
+            # Сортируем по дате (от новых к старым)
+            result_history.sort(key=lambda x: x.get('date', ''), reverse=True)
+            
+            # Ограничиваем количество записей
+            if len(result_history) > limit:
+                result_history = result_history[:limit]
+            
+            logger.info(f"Found {len(result_history)} history groups for exercise_id: {exercise_id}")
+            return {"history": result_history, "note": last_note}
         except Exception as e:
             logger.error(f"Get history error: {e}", exc_info=True)
             return {"history": [], "note": ""}

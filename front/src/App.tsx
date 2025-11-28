@@ -326,95 +326,84 @@ const NoteWidget = ({ initialValue, onChange }: any) => {
 };
 
 const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
-  const groupedHistory = useMemo(() => {
-    const groups: Record<string, HistoryItem[]> = {};
-    history.forEach((item: HistoryItem) => {
-      if (!groups[item.date]) groups[item.date] = [];
-      groups[item.date].push(item);
-    });
-    // Сортируем подходы внутри каждой даты по ORDER (от старых к новым)
-    Object.keys(groups).forEach(date => {
-      groups[date].sort((a, b) => (a.order || 0) - (b.order || 0));
-    });
-    // Сортируем даты от новых к старым (даты уже отсортированы на бэкенде, но на всякий случай)
-    const sortedDates = Object.keys(groups).sort((a, b) => {
-      // Даты в формате YYYY.MM.DD, сортируем в обратном порядке (от новых к старым)
-      return b.localeCompare(a);
-    });
-    const sortedGroups: Record<string, HistoryItem[]> = {};
-    sortedDates.forEach(date => {
-      sortedGroups[date] = groups[date];
-    });
-    return sortedGroups;
-  }, [history]);
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`История: ${exerciseName}`}>
       <div className="space-y-6">
-        {Object.entries(groupedHistory).map(([date, items]) => {
-          // Группируем подходы по setGroupId в рамках одной даты
-          const groupedBySetGroup: Array<{ setGroupId: string | null; items: HistoryItem[] }> = [];
-          let currentGroup: { setGroupId: string | null; items: HistoryItem[] } | null = null;
-          
-          items.forEach((item) => {
-            const itemSetGroupId = item.setGroupId || null;
-            if (!currentGroup || currentGroup.setGroupId !== itemSetGroupId) {
-              if (currentGroup) {
-                groupedBySetGroup.push(currentGroup);
-              }
-              currentGroup = { setGroupId: itemSetGroupId, items: [item] };
-            } else {
-              currentGroup.items.push(item);
-            }
-          });
-          if (currentGroup) {
-            groupedBySetGroup.push(currentGroup);
-          }
-          
-          return (
-            <div key={date}>
-              <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900 py-1 z-10">
-                <Calendar className="w-4 h-4 text-zinc-500" /><span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{date}</span>
-              </div>
-              <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
-                {groupedBySetGroup.map((group, groupIdx) => {
-                  const isSupersetGroup = group.setGroupId && group.setGroupId.trim() !== '';
-                  const isLastInGroup = groupIdx === groupedBySetGroup.length - 1;
-                  const prevGroup = groupIdx > 0 ? groupedBySetGroup[groupIdx - 1] : null;
-                  const isGroupStart = isSupersetGroup && (!prevGroup || prevGroup.setGroupId !== group.setGroupId);
-                  
-                  return (
-                    <div key={groupIdx}>
-                      {isGroupStart && (
-                        <div className="px-3 pt-3 pb-1 text-xs text-blue-400 font-bold flex items-center">
-                          <LinkIcon className="w-3 h-3 mr-1" /> СУПЕРСЕТ
-                        </div>
-                      )}
-                      {group.items.map((item, idx) => {
-                        const isLastItem = idx === group.items.length - 1;
-                        const isGroupEnd = isSupersetGroup && isLastItem && (isLastInGroup || (groupIdx < groupedBySetGroup.length - 1 && groupedBySetGroup[groupIdx + 1].setGroupId !== group.setGroupId));
-                        const borderClass = isSupersetGroup 
-                          ? `border-l-2 border-l-blue-500 bg-blue-500/5 ${!isLastItem ? 'border-b border-zinc-800/50' : (isGroupEnd ? 'border-b border-zinc-800/50' : '')}`
-                          : 'border-b border-zinc-800';
-                        
+        {history.map((group: any, idx: number) => {
+          if (group.isSuperset && group.exercises) {
+            // Отображаем суперсет со всеми упражнениями
+            return (
+              <div key={idx}>
+                <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900 py-1 z-10">
+                  <Calendar className="w-4 h-4 text-zinc-500" />
+                  <span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{group.date}</span>
+                </div>
+                <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
+                  <div className="px-3 pt-3 pb-1 text-xs text-blue-400 font-bold flex items-center">
+                    <LinkIcon className="w-3 h-3 mr-1" /> СУПЕРСЕТ
+                  </div>
+                  {group.exercises.map((ex: any, exIdx: number) => (
+                    <div key={exIdx}>
+                      {exIdx > 0 && <div className="border-t border-zinc-800/50" />}
+                      <div className="px-3 pt-2 pb-1 text-sm font-medium text-zinc-300">
+                        {ex.exerciseName}
+                      </div>
+                      {ex.sets.map((set: any, setIdx: number) => {
+                        const isLastSet = setIdx === ex.sets.length - 1;
+                        const isLastExercise = exIdx === group.exercises.length - 1;
+                        const borderClass = isLastSet && isLastExercise ? '' : 'border-b border-zinc-800/50';
                         return (
                           <div 
-                            key={idx} 
-                            className={`p-3 ${borderClass} ${isLastItem && isLastInGroup && !isSupersetGroup ? 'last:border-b-0' : ''} flex items-center justify-between`}
+                            key={setIdx} 
+                            className={`p-3 border-l-2 border-l-blue-500 bg-blue-500/5 ${borderClass} flex items-center justify-between`}
                           >
                             <div>
-                              <div className="text-lg font-medium text-zinc-200">{item.weight} <span className="text-sm text-zinc-500">кг</span> × {item.reps}</div>
+                              <div className="text-lg font-medium text-zinc-200">
+                                {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps}
+                              </div>
                             </div>
-                            <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">{item.rest}м</div>
+                            <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
+                              {set.rest}м
+                            </div>
                           </div>
                         );
                       })}
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-          );
+            );
+          } else {
+            // Обычные подходы (не в суперсете)
+            return (
+              <div key={idx}>
+                <div className="flex items-center gap-2 mb-2 sticky top-0 bg-zinc-900 py-1 z-10">
+                  <Calendar className="w-4 h-4 text-zinc-500" />
+                  <span className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{group.date}</span>
+                </div>
+                <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl overflow-hidden">
+                  {group.sets.map((set: any, setIdx: number) => {
+                    const isLastSet = setIdx === group.sets.length - 1;
+                    return (
+                      <div 
+                        key={setIdx} 
+                        className={`p-3 ${isLastSet ? '' : 'border-b border-zinc-800/50'} flex items-center justify-between`}
+                      >
+                        <div>
+                          <div className="text-lg font-medium text-zinc-200">
+                            {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps}
+                          </div>
+                        </div>
+                        <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
+                          {set.rest}м
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
         })}
         {history.length === 0 && <div className="text-center text-zinc-500 py-10">История пуста</div>}
       </div>
