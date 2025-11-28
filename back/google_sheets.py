@@ -195,6 +195,10 @@ class GoogleSheetsManager:
             if 'muscleGroup' in data: 
                 self.exercises_sheet.update_cell(row_num, 3, data['muscleGroup'])
                 logger.debug(f"Updated muscleGroup: {data['muscleGroup']}")
+            if 'description' in data:
+                description = data['description'] or ''
+                self.exercises_sheet.update_cell(row_num, 4, description)
+                logger.debug(f"Updated description: {description[:50] if description else 'empty'}...")
             if 'imageUrl' in data: 
                 image_url = data['imageUrl'] or ''
                 self.exercises_sheet.update_cell(row_num, image_url_col, image_url)
