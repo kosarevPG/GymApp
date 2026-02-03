@@ -35,6 +35,7 @@ interface WorkoutSet {
   order?: number;
   setGroupId?: string;
   isEditing?: boolean;
+  rowNumber?: number;  // Номер строки в Google Sheets для update
 }
 
 interface HistoryItem {
@@ -796,6 +797,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     weight: string;
     reps: string;
     rest: string;
+    rowNumber?: number;
   } | null>(null);
   
   useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
@@ -813,7 +815,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     timer.resetAndStart();
 
     try {
-        await api.saveSet({
+        const result = await api.saveSet({
             exercise_id: exId,
             weight: parseFloat(set.weight),
             reps: parseInt(set.reps),
@@ -822,6 +824,19 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             set_group_id: localGroupId,
             order
         });
+        
+        // Сохраняем номер строки для последующего update
+        if (result?.row_number) {
+            setSessionData(prev => ({
+                ...prev,
+                [exId]: {
+                    ...prev[exId],
+                    sets: prev[exId].sets.map(s => s.id === setId ? { ...s, rowNumber: result.row_number } : s)
+                }
+            }));
+            console.log('Saved set with row_number:', result.row_number);
+        }
+        
         notify('success');
     } catch (e) {
         notify('error');
@@ -833,37 +848,32 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       const next = { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } };
       const set = next[exId].sets.find(s => s.id === setId);
       
-      console.log('handleUpdateSet:', { field, val, completed: set?.completed, isEditing: set?.isEditing, order: set?.order, setGroupId: set?.setGroupId });
-      
-      // Если подход выполнен, в режиме редактирования и имеет order/setGroupId
-      if (set?.completed && set.isEditing && set.order != null && set.setGroupId) {
+      // Если подход выполнен, в режиме редактирования и имеет rowNumber (или fallback на order/setGroupId)
+      if (set?.completed && set.isEditing && (set.rowNumber || (set.order != null && set.setGroupId))) {
         // Сохраняем ВСЕ актуальные данные в ref для отправки
         pendingUpdateRef.current = {
           exId,
           setId,
-          setGroupId: set.setGroupId,
-          order: set.order,
+          setGroupId: set.setGroupId || '',
+          order: set.order || 0,
           weight: set.weight,
           reps: set.reps,
-          rest: set.rest
+          rest: set.rest,
+          rowNumber: set.rowNumber  // Главное - номер строки!
         };
-        
-        console.log('Pending update saved:', pendingUpdateRef.current);
         
         // Очищаем предыдущий таймер и запускаем новый
         if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current);
         updateSetDebounceRef.current = setTimeout(async () => {
           updateSetDebounceRef.current = null;
           const data = pendingUpdateRef.current;
-          if (!data) {
-            console.log('No pending data to send');
-            return;
-          }
+          if (!data) return;
           
-          console.log('Sending update to API:', data);
+          console.log('Sending update with row_number:', data.rowNumber);
           
           try {
             const result = await api.updateSet({
+              row_number: data.rowNumber,  // Передаём номер строки - быстро и надёжно
               exercise_id: data.exId,
               set_group_id: data.setGroupId,
               order: data.order,
@@ -871,7 +881,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
               reps: parseInt(data.reps) || 0,
               rest: parseFloat(data.rest) || 0
             });
-            console.log('API Update result:', result);
+            console.log('Update result:', result);
             
             if (result?.status === 'success') {
               // После успешного сохранения - карандаш становится серым
@@ -886,9 +896,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           } catch (e) {
             console.error('Failed to update set:', e);
           }
-        }, 2500); // 2.5 секунды для надёжности
-      } else {
-        console.log('Update condition NOT met:', { completed: set?.completed, isEditing: set?.isEditing, order: set?.order, setGroupId: set?.setGroupId });
+        }, 1500); // 1.5 секунды - теперь не нужно ждать долго
       }
       
       return next;

@@ -112,9 +112,13 @@ async def api_global_history(request):
 async def api_save_set(request):
     try:
         data = await request.json()
-        if sheets.save_workout_set(data):
-            return json_response({"status": "success"})
-        return json_response({"error": "Failed to save"}, 500)
+        result = sheets.save_workout_set(data)
+        if result.get('success'):
+            return json_response({
+                "status": "success",
+                "row_number": result.get('row_number')  # Возвращаем номер строки для update
+            })
+        return json_response({"error": result.get('error', 'Failed to save')}, 500)
     except Exception as e:
         return json_response({"error": str(e)}, 500)
 
