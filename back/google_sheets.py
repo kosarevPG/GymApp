@@ -560,19 +560,19 @@ class GoogleSheetsManager:
                 raw_exercises = day_data["exercises"]
                 raw_exercises.sort(key=lambda x: x.get('order', 0))
                 
-                # Группируем подходы по упражнениям и суперсетам
+                # Группируем подходы по упражнениям
                 exercises_grouped = {}
                 for ex in raw_exercises:
                     ex_name = ex["exerciseName"]
                     set_group_id = ex.get("setGroupId", "")
                     
-                    # Ключ группировки: имя упражнения + setGroupId для суперсетов
+                    # Ключ группировки: имя упражнения + setGroupId
                     key = f"{ex_name}_{set_group_id}" if set_group_id else ex_name
                     
                     if key not in exercises_grouped:
                         exercises_grouped[key] = {
                             "name": ex_name,
-                            "supersetId": set_group_id if set_group_id else None,
+                            "setGroupId": set_group_id,
                             "sets": []
                         }
                     
@@ -582,8 +582,23 @@ class GoogleSheetsManager:
                         "rest": ex["rest"]
                     })
                 
-                # Преобразуем в список
-                grouped_list = list(exercises_grouped.values())
+                # Определяем суперсеты: группы где несколько РАЗНЫХ упражнений имеют одинаковый setGroupId
+                set_group_exercise_count = {}
+                for ex_data in exercises_grouped.values():
+                    sg = ex_data.get("setGroupId", "")
+                    if sg:
+                        set_group_exercise_count[sg] = set_group_exercise_count.get(sg, 0) + 1
+                
+                # Назначаем supersetId только если в группе > 1 разных упражнений
+                grouped_list = []
+                for ex_data in exercises_grouped.values():
+                    sg = ex_data.get("setGroupId", "")
+                    is_superset = sg and set_group_exercise_count.get(sg, 0) > 1
+                    grouped_list.append({
+                        "name": ex_data["name"],
+                        "supersetId": sg if is_superset else None,
+                        "sets": ex_data["sets"]
+                    })
                 
                 result.append({
                     "id": date_val,
