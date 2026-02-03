@@ -557,13 +557,40 @@ class GoogleSheetsManager:
             
             result = []
             for date_val, day_data in days.items():
-                day_data["exercises"].sort(key=lambda x: x.get('order', 0))
+                raw_exercises = day_data["exercises"]
+                raw_exercises.sort(key=lambda x: x.get('order', 0))
+                
+                # Группируем подходы по упражнениям и суперсетам
+                exercises_grouped = {}
+                for ex in raw_exercises:
+                    ex_name = ex["exerciseName"]
+                    set_group_id = ex.get("setGroupId", "")
+                    
+                    # Ключ группировки: имя упражнения + setGroupId для суперсетов
+                    key = f"{ex_name}_{set_group_id}" if set_group_id else ex_name
+                    
+                    if key not in exercises_grouped:
+                        exercises_grouped[key] = {
+                            "name": ex_name,
+                            "supersetId": set_group_id if set_group_id else None,
+                            "sets": []
+                        }
+                    
+                    exercises_grouped[key]["sets"].append({
+                        "weight": ex["weight"],
+                        "reps": ex["reps"],
+                        "rest": ex["rest"]
+                    })
+                
+                # Преобразуем в список
+                grouped_list = list(exercises_grouped.values())
+                
                 result.append({
                     "id": date_val,
                     "date": date_val,
                     "muscleGroups": sorted(list(day_data["muscleGroups"])),
-                    "duration": "45м", 
-                    "exercises": [] 
+                    "duration": f"{len(raw_exercises) * 2}м",  # Примерная оценка
+                    "exercises": grouped_list
                 })
             
             result.sort(key=lambda x: x['date'], reverse=True)
