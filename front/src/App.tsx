@@ -868,7 +868,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           } catch (e) {
             console.error('Failed to update set:', e);
           }
-        }, 800);
+        }, 2000); // 2 секунды чтобы Google Sheets успел обновиться
       }
     }, 0);
   };
