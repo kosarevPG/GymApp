@@ -287,6 +287,7 @@ class GoogleSheetsManager:
         """
         try:
             row_num = data.get('row_number')
+            logger.info(f"update_workout_set called with row_number={row_num}, data keys={list(data.keys())}")
             
             # Стандартные индексы колонок
             weight_idx = 3  # D

@@ -126,8 +126,12 @@ async def api_update_set(request):
     """Обновить запись подхода в Google Sheets (кг, повт, мин)"""
     try:
         data = await request.json()
-        if not data.get('set_group_id') or not data.get('exercise_id') or data.get('order') is None:
-            return json_response({"error": "Missing set_group_id, exercise_id or order"}, 400)
+        logger.info(f"api_update_set received: row_number={data.get('row_number')}, exercise_id={data.get('exercise_id')}")
+        
+        # row_number - приоритетный способ, fallback на search по exercise_id + set_group_id + order
+        if not data.get('row_number') and (not data.get('set_group_id') or not data.get('exercise_id') or data.get('order') is None):
+            return json_response({"error": "Missing row_number or (set_group_id, exercise_id, order)"}, 400)
+        
         if sheets.update_workout_set(data):
             return json_response({"status": "success"})
         return json_response({"error": "Failed to update"}, 500)
