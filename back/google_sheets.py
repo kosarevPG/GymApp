@@ -10,7 +10,10 @@ import logging
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Московское время (UTC+3)
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 logger = logging.getLogger(__name__)
 
@@ -203,18 +206,30 @@ class GoogleSheetsManager:
                 elif header_lower in ['image_url2', 'image2', 'фото2', 'фото_2']: image_url2_col = i
             
             logger.info(f"Columns map: Desc={description_col}, Img1={image_url_col}, Img2={image_url2_col}")
+            logger.info(f"Data keys received: {list(data.keys())}")
+            logger.info(f"Description in data: {'description' in data}")
+            if 'description' in data:
+                logger.info(f"Description value type: {type(data['description'])}, value: {repr(data['description'])[:50]}")
             
             if 'name' in data: 
                 self.exercises_sheet.update_cell(row_num, name_col, data['name'])
+                logger.info(f"Updated name")
             if 'muscleGroup' in data: 
                 self.exercises_sheet.update_cell(row_num, group_col, data['muscleGroup'])
+                logger.info(f"Updated muscleGroup")
             
             # ВАЖНО: Запись описания
             if 'description' in data:
                 # Если пришел null или undefined, пишем пустую строку
                 description = data['description'] if data['description'] is not None else ''
+                logger.info(f"Writing description to column {description_col}: {repr(description)[:50]}")
                 self.exercises_sheet.update_cell(row_num, description_col, description)
-                logger.info(f"Updated description: {description[:20]}...")
+                logger.info(f"Updated description: {description[:20] if description else 'empty'}...")
+                # Проверяем сохранение
+                saved_desc = self.exercises_sheet.cell(row_num, description_col).value
+                logger.info(f"Verified saved description: {repr(saved_desc)[:50] if saved_desc else 'empty'}")
+            else:
+                logger.warning("Description NOT in data dict!")
                 
             if 'imageUrl' in data: 
                 image_url = data['imageUrl'] if data['imageUrl'] is not None else ''
@@ -231,7 +246,7 @@ class GoogleSheetsManager:
 
     def save_workout_set(self, data: Dict) -> bool:
         try:
-            timestamp = datetime.now().strftime('%Y.%m.%d, %H:%M')
+            timestamp = datetime.now(MOSCOW_TZ).strftime('%Y.%m.%d, %H:%M')
             row = [
                 timestamp,
                 data.get('exercise_id'),
@@ -302,17 +317,9 @@ class GoogleSheetsManager:
             if note_idx is None: note_idx = 7
             if order_idx is None: order_idx = 8
             
-            # Получаем РЕАЛЬНОЕ имя упражнения
-            all_exercises = self.get_all_exercises().get('exercises', [])
-            exercise_name_map = {e['id']: e['name'] for e in all_exercises}
-            target_exercise_name = exercise_name_map.get(exercise_id, 'Упражнение')
-
             history_items = []
             last_note = ""
             exercise_id_str = str(exercise_id).strip()
-            
-            # Находим группы, которые содержат это упражнение
-            relevant_group_ids = set()
             
             # Собираем все записи для данного упражнения
             for row in data_rows:
@@ -323,10 +330,6 @@ class GoogleSheetsManager:
                 record_ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
                 
                 if record_ex_id == exercise_id_str:
-                    set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else None
-                    if set_group_id:
-                        relevant_group_ids.add(set_group_id)
-                    
                     # Получаем заметку
                     if not last_note and note_idx < len(row) and row[note_idx]:
                         last_note = str(row[note_idx]).strip()
@@ -336,6 +339,7 @@ class GoogleSheetsManager:
                     reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
                     rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
                     order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
+                    set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
                     
                     history_items.append({
                         'date': date_val,
@@ -345,18 +349,6 @@ class GoogleSheetsManager:
                         'order': order,
                         'setGroupId': set_group_id if set_group_id else None,
                     })
-            
-            # Определяем "настоящие" суперсеты (группы, где есть >1 типа упражнений)
-            real_superset_ids = set()
-            if relevant_group_ids:
-                for row in data_rows:
-                    if len(row) <= max(ex_id_idx, set_group_idx or 0):
-                        continue
-                    rec_gid = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
-                    if rec_gid in relevant_group_ids:
-                        rec_eid = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
-                        if rec_eid != exercise_id_str:  # Нашли другое упражнение в той же группе
-                            real_superset_ids.add(rec_gid)
             
             # Сортировка по дате (от новых к старым) и ORDER
             history_items.sort(key=lambda x: (x.get('date', ''), x.get('order', 0)), reverse=True)
@@ -373,29 +365,30 @@ class GoogleSheetsManager:
             for date_val, items in grouped_by_date.items():
                 items.sort(key=lambda x: x.get('order', 0))
                 
-                by_group, standalone = {}, []
+                # Упрощенная группировка по суперсетам
+                by_group = {}
+                standalone = []
+                
                 for item in items:
-                    sg = item.get('setGroupId')
-                    # Считаем суперсетом ТОЛЬКО если в группе реально есть другие упражнения
-                    if sg and sg in real_superset_ids:
-                        if sg not in by_group:
-                            by_group[sg] = []
-                        by_group[sg].append(item)
+                    sg_id = item.get('setGroupId')
+                    if sg_id:
+                        if sg_id not in by_group: by_group[sg_id] = []
+                        by_group[sg_id].append(item)
                     else:
                         standalone.append(item)
                 
                 # Добавляем суперсеты
-                for sg_id, g_items in by_group.items():
-                    if g_items:
-                        result_history.append({
+                for sg_id, group_items in by_group.items():
+                    if len(group_items) > 0:
+                         result_history.append({
                             'date': date_val,
                             'setGroupId': sg_id,
                             'isSuperset': True,
                             'exercises': [{
-                                'exerciseId': exercise_id,
-                                'exerciseName': target_exercise_name,  # Используем реальное имя
-                                'sets': g_items
-                            }]
+                                'exerciseId': exercise_id, 
+                                'exerciseName': 'Current Exercise', 
+                                'sets': group_items
+                            }] 
                         })
                 
                 # Добавляем обычные сеты
@@ -440,95 +433,27 @@ class GoogleSheetsManager:
                 muscle = ex_info.get('muscleGroup', 'Other')
                 
                 if date_val not in days:
-                    days[date_val] = {"date": date_val, "muscleGroups": set(), "raw_sets": []}
+                    days[date_val] = {"date": date_val, "muscleGroups": set(), "exercises": []}
                 
                 days[date_val]["muscleGroups"].add(muscle)
-                days[date_val]["raw_sets"].append({
-                    "name": ex_name,
+                days[date_val]["exercises"].append({
+                    "exerciseName": ex_name,
                     "weight": DataParser.to_float(row[weight_idx]),
                     "reps": DataParser.to_int(row[reps_idx]),
                     "rest": DataParser.to_float(row[rest_idx]),
                     "order": DataParser.to_int(row[order_idx]),
-                    "setGroupId": str(row[set_group_idx]).strip(),
-                    "exerciseId": ex_id
+                    "setGroupId": str(row[set_group_idx]).strip()
                 })
             
-            # Формируем структуру для фронтенда с группировкой упражнений
             result = []
             for date_val, day_data in days.items():
-                raw_sets = day_data["raw_sets"]
-                # Сортируем сеты по порядку (Order)
-                raw_sets.sort(key=lambda x: x.get('order', 0))
-                
-                # --- ЛОГИКА ОПРЕДЕЛЕНИЯ СУПЕРСЕТОВ ---
-                # Находим группы, в которых более одного уникального упражнения
-                superset_groups = {}
-                for s in raw_sets:
-                    gid = s['setGroupId']
-                    if gid:
-                        if gid not in superset_groups:
-                            superset_groups[gid] = set()
-                        superset_groups[gid].add(s['exerciseId'])
-                
-                real_superset_ids = {gid for gid, ex_ids in superset_groups.items() if len(ex_ids) > 1}
-                
-                # Группируем сеты в упражнения
-                exercises_list = []
-                current_block = None
-                
-                for s in raw_sets:
-                    # Определяем, является ли этот сет частью НАСТОЯЩЕГО суперсета
-                    # Передаем ID группы только если это реальный суперсет
-                    effective_superset_id = s['setGroupId'] if (s['setGroupId'] and s['setGroupId'] in real_superset_ids) else None
-                    
-                    should_start_new = False
-                    if not current_block:
-                        should_start_new = True
-                    else:
-                        # Если упражнение сменилось - новый блок
-                        if current_block['exerciseId'] != s['exerciseId']:
-                            should_start_new = True
-                        # Если группа сменилась (даже если упражнение то же, что странно, но возможно)
-                        elif current_block['setGroupId'] != s['setGroupId']:
-                            should_start_new = True
-
-                    if should_start_new:
-                        if current_block:
-                            exercises_list.append({
-                                "name": current_block['name'],
-                                "supersetId": current_block['finalSupersetId'],  # Используем вычисленный ID
-                                "sets": current_block['sets']
-                            })
-                        
-                        current_block = {
-                            "exerciseId": s['exerciseId'],
-                            "name": s['name'],
-                            "setGroupId": s['setGroupId'],  # Сырой ID для проверки смены групп
-                            "finalSupersetId": effective_superset_id,  # ID для фронтенда
-                            "sets": []
-                        }
-                    
-                    if current_block:
-                        current_block['sets'].append({
-                            "weight": s['weight'],
-                            "reps": s['reps'],
-                            "rest": s['rest']
-                        })
-                
-                if current_block:
-                    exercises_list.append({
-                        "name": current_block['name'],
-                        "supersetId": current_block['finalSupersetId'],
-                        "sets": current_block['sets']
-                    })
-
-                # Теперь exercises_list не пустой - содержит сгруппированные упражнения!
+                day_data["exercises"].sort(key=lambda x: x.get('order', 0))
                 result.append({
                     "id": date_val,
                     "date": date_val,
                     "muscleGroups": sorted(list(day_data["muscleGroups"])),
-                    "duration": f"{len(exercises_list) * 5}м",  # Примерное время
-                    "exercises": exercises_list 
+                    "duration": "45м", 
+                    "exercises": [] 
                 })
             
             result.sort(key=lambda x: x['date'], reverse=True)
