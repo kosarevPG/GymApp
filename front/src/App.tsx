@@ -495,23 +495,41 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete, onToggleEdit }: { set: an
 
 const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompleteSet, onToggleEdit, onNoteChange, onAddSuperset }: any) => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const personalRecord = useMemo(() => {
+  
+  // PR из истории
+  const historyPR = useMemo(() => {
     if (!exerciseData.history.length) return 0;
     return Math.max(...exerciseData.history.map((h: HistoryItem) => h.weight));
   }, [exerciseData.history]);
+  
+  // Максимальный вес в текущей сессии (из выполненных подходов)
+  const sessionMax = useMemo(() => {
+    const completedSets = exerciseData.sets.filter((s: any) => s.completed && s.weight);
+    if (!completedSets.length) return 0;
+    return Math.max(...completedSets.map((s: any) => parseFloat(s.weight) || 0));
+  }, [exerciseData.sets]);
+  
+  // Проверяем побит ли PR в текущей сессии
+  const isNewPR = sessionMax > historyPR && sessionMax > 0;
+  const displayPR = Math.max(historyPR, sessionMax);
 
   return (
     <Card className="p-4 mb-4">
       <div className="flex justify-between items-start mb-4">
-        <div>
+        <div className="flex-1">
             <h2 className="text-xl font-semibold text-zinc-50">{exerciseData.exercise.name}</h2>
-            {personalRecord > 0 && (
-                <div className="flex items-center gap-1 text-yellow-500 text-xs font-medium mt-1">
-                    <Trophy className="w-3 h-3" /><span>PR: {personalRecord} кг</span>
-                </div>
-            )}
         </div>
-        <button onClick={() => setShowHistoryModal(true)} className="p-2 bg-zinc-800/50 rounded-lg text-zinc-400 hover:text-blue-500"><Calendar className="w-5 h-5" /></button>
+        {/* PR Badge - крупный и заметный */}
+        {displayPR > 0 && (
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${isNewPR ? 'bg-gradient-to-r from-yellow-500 to-orange-500 animate-pulse' : 'bg-zinc-800'}`}>
+            <Trophy className={`w-4 h-4 ${isNewPR ? 'text-white' : 'text-yellow-500'}`} />
+            <div className="flex flex-col items-end">
+              <span className={`text-sm font-bold ${isNewPR ? 'text-white' : 'text-yellow-500'}`}>{displayPR} кг</span>
+              {isNewPR && <span className="text-[10px] text-white/90 font-medium">NEW PR!</span>}
+            </div>
+          </div>
+        )}
+        <button onClick={() => setShowHistoryModal(true)} className="p-2 bg-zinc-800/50 rounded-lg text-zinc-400 hover:text-blue-500 ml-2"><Calendar className="w-5 h-5" /></button>
       </div>
       <NoteWidget initialValue={exerciseData.note} onChange={onNoteChange} />
       <HistoryListModal isOpen={showHistoryModal} onClose={() => setShowHistoryModal(false)} history={exerciseData.history} exerciseName={exerciseData.exercise.name} />
