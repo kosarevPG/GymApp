@@ -34,6 +34,7 @@ interface WorkoutSet {
   prevWeight?: number;
   order?: number;
   setGroupId?: string;
+  isEditing?: boolean;
 }
 
 interface HistoryItem {
@@ -429,12 +430,15 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void }) => {
+const SetRow = ({ set, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
   const oneRM = set.weight && set.reps ? Math.round(parseFloat(set.weight) * (1 + parseInt(set.reps) / 30)) : 0;
   const delta = set.prevWeight ? (parseFloat(set.weight) - set.prevWeight) : 0;
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
   const deltaColor = delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-zinc-500';
   const isCompleted = set.completed;
+  const isEditing = set.isEditing;
+  // Для выполненных подходов: поля disabled если НЕ в режиме редактирования
+  const inputDisabledClass = isCompleted && !isEditing ? 'opacity-50 pointer-events-none' : '';
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3">
@@ -442,7 +446,7 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         {isCompleted && <Check className="w-6 h-6 text-black stroke-[3]" />}
       </button>
       
-      <div className="flex flex-col gap-1">
+      <div className={`flex flex-col gap-1 ${inputDisabledClass}`}>
         <input 
           type="number" 
           inputMode="decimal" 
@@ -466,7 +470,7 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.reps} 
         onChange={e => onUpdate(set.id, 'reps', e.target.value)}
         onFocus={e => e.target.select()}
-        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
       />
       <input 
         type="number" 
@@ -475,10 +479,12 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.rest} 
         onChange={e => onUpdate(set.id, 'rest', e.target.value)}
         onFocus={e => e.target.select()}
-        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
+        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
       />
       {isCompleted ? (
-        <div className="w-10 h-12 flex items-center justify-center text-yellow-500"><Pencil className="w-5 h-5" /></div>
+        <button onClick={() => onToggleEdit(set.id)} className={`w-10 h-12 flex items-center justify-center transition-colors ${isEditing ? 'text-yellow-500' : 'text-zinc-600 hover:text-zinc-400'}`}>
+          <Pencil className="w-5 h-5" />
+        </button>
       ) : (
         <button onClick={() => onDelete(set.id)} className="w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
       )}
@@ -486,7 +492,7 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
   );
 };
 
-const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompleteSet, onNoteChange, onAddSuperset }: any) => {
+const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompleteSet, onToggleEdit, onNoteChange, onAddSuperset }: any) => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const personalRecord = useMemo(() => {
     if (!exerciseData.history.length) return 0;
@@ -517,7 +523,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       </div>
       <div className="space-y-1">
         {exerciseData.sets.map((set: any) => (
-          <SetRow key={set.id} set={set} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} />
+          <SetRow key={set.id} set={set} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -840,6 +846,16 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     });
   };
   
+  const handleToggleEdit = (exId: string, setId: string) => {
+    setSessionData(prev => ({
+      ...prev,
+      [exId]: {
+        ...prev[exId],
+        sets: prev[exId].sets.map(s => s.id === setId ? { ...s, isEditing: !s.isEditing } : s)
+      }
+    }));
+  };
+
   const handleAddSet = (exId: string) => {
     setSessionData(prev => {
         const currentSets = prev[exId].sets;
@@ -874,7 +890,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
         {activeExercises.map(exId => {
             const data = sessionData[exId];
             if (!data) return <div key={exId} className="h-40 bg-zinc-900 rounded-2xl animate-pulse" />;
-            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
+            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onToggleEdit={(sid: string) => handleToggleEdit(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
         })}
       </div>
       <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={handleFinish} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
