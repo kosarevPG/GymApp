@@ -833,6 +833,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       const next = { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } };
       const set = next[exId].sets.find(s => s.id === setId);
       
+      console.log('handleUpdateSet:', { field, val, completed: set?.completed, isEditing: set?.isEditing, order: set?.order, setGroupId: set?.setGroupId });
+      
       // Если подход выполнен, в режиме редактирования и имеет order/setGroupId
       if (set?.completed && set.isEditing && set.order != null && set.setGroupId) {
         // Сохраняем ВСЕ актуальные данные в ref для отправки
@@ -846,14 +848,19 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           rest: set.rest
         };
         
+        console.log('Pending update saved:', pendingUpdateRef.current);
+        
         // Очищаем предыдущий таймер и запускаем новый
         if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current);
         updateSetDebounceRef.current = setTimeout(async () => {
           updateSetDebounceRef.current = null;
           const data = pendingUpdateRef.current;
-          if (!data) return;
+          if (!data) {
+            console.log('No pending data to send');
+            return;
+          }
           
-          console.log('Sending update:', data);
+          console.log('Sending update to API:', data);
           
           try {
             const result = await api.updateSet({
@@ -864,7 +871,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
               reps: parseInt(data.reps) || 0,
               rest: parseFloat(data.rest) || 0
             });
-            console.log('Update result:', result);
+            console.log('API Update result:', result);
             
             if (result?.status === 'success') {
               // После успешного сохранения - карандаш становится серым
@@ -880,6 +887,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             console.error('Failed to update set:', e);
           }
         }, 2500); // 2.5 секунды для надёжности
+      } else {
+        console.log('Update condition NOT met:', { completed: set?.completed, isEditing: set?.isEditing, order: set?.order, setGroupId: set?.setGroupId });
       }
       
       return next;
