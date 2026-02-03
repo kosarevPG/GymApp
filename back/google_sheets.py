@@ -288,12 +288,12 @@ class GoogleSheetsManager:
         reps_idx = 4
         rest_idx = 5
 
-        # Retry логика - Google Sheets API может иметь задержку
-        max_retries = 3
+        # Retry логика - Google Sheets API может иметь задержку (eventual consistency)
+        max_retries = 4
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    wait_time = attempt * 1.5  # 1.5s, 3s
+                    wait_time = attempt * 2  # 2s, 4s, 6s
                     logger.info(f"update_workout_set: retry {attempt + 1}/{max_retries}, waiting {wait_time}s")
                     time.sleep(wait_time)
                 
@@ -323,6 +323,8 @@ class GoogleSheetsManager:
 
                 # Ищем строку по exercise_id, set_group_id, order
                 row_num = None
+                matching_exercise_rows = []
+                
                 for idx, row in enumerate(data_rows):
                     if len(row) <= max(ex_id_idx, set_group_idx, order_idx):
                         continue
@@ -330,11 +332,23 @@ class GoogleSheetsManager:
                     r_sg = str(row[set_group_idx]).strip() if set_group_idx < len(row) else ''
                     r_ord = DataParser.to_int(row[order_idx] if order_idx < len(row) else '', -1)
                     
+                    # Собираем все строки с этим exercise_id для диагностики
+                    if r_ex == exercise_id:
+                        matching_exercise_rows.append({
+                            'row': idx + 2,
+                            'set_group_id': r_sg,
+                            'order': r_ord
+                        })
+                    
                     if r_ex == exercise_id and r_sg == set_group_id and r_ord == order_val:
                         row_num = idx + 2  # +1 для заголовка, +1 для 1-based индекса
                         break
 
                 if row_num is None:
+                    # Логируем что нашли для этого exercise_id
+                    logger.info(f"update_workout_set attempt {attempt + 1}: searching for sg={set_group_id}, order={order_val}")
+                    logger.info(f"update_workout_set: found {len(matching_exercise_rows)} rows for exercise_id, last 5: {matching_exercise_rows[-5:]}")
+                    
                     # Не нашли - попробуем ещё раз
                     if attempt < max_retries - 1:
                         continue
@@ -355,10 +369,11 @@ class GoogleSheetsManager:
                 return True
                 
             except Exception as e:
-                logger.error(f"Update workout set error (attempt {attempt + 1}): {e}")
+                logger.error(f"Update workout set error (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt >= max_retries - 1:
                     logger.error(f"Update workout set failed after {max_retries} attempts", exc_info=True)
                     return False
+                # Продолжаем retry
         
         return False
 
