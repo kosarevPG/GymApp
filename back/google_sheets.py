@@ -630,29 +630,48 @@ class GoogleSheetsManager:
             
             logger.info(f"Analytics v2: {len(data_rows)} rows, {len(exercises_map)} exercises")
             
+            # Логируем первые строки для отладки
+            if data_rows:
+                logger.info(f"Analytics v2: first row sample: {data_rows[0][:6] if len(data_rows[0]) >= 6 else data_rows[0]}")
+            
             # ========== ШАГ 1: Сбор сырых данных ==========
             all_sets = []  # Все подходы с производными полями
+            skipped_dates = 0
+            parsed_dates = 0
             
             for row in data_rows:
                 if len(row) < 5:
                     continue
                 
-                date_str = str(row[date_idx]).split(',')[0].strip()
+                date_str_raw = str(row[date_idx]).strip()
+                # Убираем время если есть (формат "03.02.2026, 10:30")
+                date_str = date_str_raw.split(',')[0].strip()
                 if not date_str:
                     continue
                 
-                # Парсим дату
-                try:
-                    # Пробуем разные форматы
-                    for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y']:
-                        try:
-                            date_obj = datetime.strptime(date_str, fmt)
-                            break
-                        except ValueError:
-                            continue
-                    else:
+                # Парсим дату - пробуем много форматов
+                date_obj = None
+                DATE_FORMATS = [
+                    '%Y-%m-%d',      # 2026-02-03
+                    '%d.%m.%Y',      # 03.02.2026
+                    '%d/%m/%Y',      # 03/02/2026
+                    '%m/%d/%Y',      # 02/03/2026 (US format)
+                    '%Y.%m.%d',      # 2026.02.03
+                    '%d-%m-%Y',      # 03-02-2026
+                ]
+                
+                for fmt in DATE_FORMATS:
+                    try:
+                        date_obj = datetime.strptime(date_str, fmt)
+                        parsed_dates += 1
+                        break
+                    except ValueError:
                         continue
-                except Exception:
+                
+                if date_obj is None:
+                    skipped_dates += 1
+                    if skipped_dates <= 3:
+                        logger.warning(f"Analytics v2: cannot parse date '{date_str_raw}'")
                     continue
                 
                 ex_id = str(row[ex_id_idx]).strip()
@@ -684,7 +703,10 @@ class GoogleSheetsManager:
                     'volume': volume
                 })
             
+            logger.info(f"Analytics v2: parsed {parsed_dates} dates, skipped {skipped_dates}, collected {len(all_sets)} sets")
+            
             if not all_sets:
+                logger.warning("Analytics v2: no sets collected, returning empty")
                 return self._empty_analytics()
             
             # ========== ШАГ 2: Вычисляем best e1RM и intensity ==========
