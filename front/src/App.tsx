@@ -3,7 +3,8 @@ import {
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
-  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, TrendingUp
+  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3,
+  AlertTriangle, ArrowUp, ArrowDown, Zap, Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -92,6 +93,11 @@ const api = {
   getGlobalHistory: async () => {
       const data = await api.request('global_history');
       return data || [];
+  },
+
+  getAnalytics: async () => {
+      const data = await api.request('analytics');
+      return data || { exerciseStats: {}, muscleGroupStats: {}, balance: {}, alerts: [] };
   },
 
   saveSet: async (data: any) => {
@@ -1016,65 +1022,56 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
   );
 };
 
+interface AnalyticsData {
+  exerciseStats: Record<string, {
+    name: string;
+    muscleGroup: string;
+    history: { date: string; e1rm: number; volume: number }[];
+    currentE1RM: number;
+    bestE1RM: number;
+    weeklyChange: number;
+    plateauWeeks: number;
+  }>;
+  muscleGroupStats: Record<string, {
+    weeklyFrequency: number;
+    totalVolume: number;
+    category: string;
+  }>;
+  balance: { push: number; pull: number; legs: number };
+  alerts: { type: string; exercise?: string; weeks?: number; message?: string; muscle?: string; frequency?: number; change?: number }[];
+}
+
 const AnalyticsScreen = ({ onBack }: any) => {
-  const [history, setHistory] = useState<GlobalWorkoutSession[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => { 
-    api.getGlobalHistory().then(data => {
-      setHistory(data);
+    api.getAnalytics().then((data: AnalyticsData) => {
+      setAnalytics(data);
       setLoading(false);
     });
   }, []);
 
-  // Статистика
-  const stats = useMemo(() => {
-    if (!history.length) return null;
-    
-    const totalWorkouts = history.length;
-    const uniqueDays = new Set(history.map(h => h.date)).size;
-    
-    // Группы мышц
-    const muscleGroupCount: Record<string, number> = {};
-    history.forEach(h => {
-      h.muscleGroups.forEach(mg => {
-        muscleGroupCount[mg] = (muscleGroupCount[mg] || 0) + 1;
-      });
-    });
-    
-    // Топ группы мышц
-    const topMuscleGroups = Object.entries(muscleGroupCount)
-      .sort((a, b) => b[1] - a[1])
+  // Топ упражнений по e1RM
+  const topExercises = useMemo(() => {
+    if (!analytics?.exerciseStats) return [];
+    return Object.entries(analytics.exerciseStats)
+      .map(([id, data]) => ({ id, ...data }))
+      .filter(e => e.currentE1RM > 0)
+      .sort((a, b) => b.currentE1RM - a.currentE1RM)
       .slice(0, 5);
-    
-    // Общее количество подходов
-    let totalSets = 0;
-    let totalWeight = 0;
-    history.forEach(h => {
-      if (h.exercises) {
-        h.exercises.forEach((ex: any) => {
-          if (ex.sets) {
-            totalSets += ex.sets.length;
-            ex.sets.forEach((s: any) => {
-              totalWeight += (s.weight || 0) * (s.reps || 0);
-            });
-          }
-        });
-      }
-    });
-    
-    // Последние 7 дней
-    const last7Days = history.slice(0, 7).length;
-    
-    return {
-      totalWorkouts,
-      uniqueDays,
-      totalSets,
-      totalWeight: Math.round(totalWeight / 1000), // в тоннах
-      topMuscleGroups,
-      last7Days
-    };
-  }, [history]);
+  }, [analytics]);
+
+  // Частота по мышцам
+  const muscleFrequency = useMemo(() => {
+    if (!analytics?.muscleGroupStats) return [];
+    return Object.entries(analytics.muscleGroupStats)
+      .map(([name, data]) => ({ name, ...data }))
+      .filter(m => m.totalVolume > 0)
+      .sort((a, b) => b.weeklyFrequency - a.weeklyFrequency);
+  }, [analytics]);
+
+  const hasData = analytics && (topExercises.length > 0 || muscleFrequency.length > 0);
 
   return (
     <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
@@ -1085,60 +1082,177 @@ const AnalyticsScreen = ({ onBack }: any) => {
       
       {loading ? (
         <div className="p-4 space-y-4">
-          {[1,2,3].map(i => <div key={i} className="h-24 bg-zinc-900 rounded-2xl animate-pulse" />)}
+          {[1,2,3,4].map(i => <div key={i} className="h-28 bg-zinc-900 rounded-2xl animate-pulse" />)}
         </div>
-      ) : stats ? (
+      ) : hasData ? (
         <div className="p-4 space-y-4 pb-20">
-          {/* Главные метрики */}
-          <div className="grid grid-cols-2 gap-3">
-            <Card className="p-4">
-              <div className="text-3xl font-bold text-blue-500">{stats.totalWorkouts}</div>
-              <div className="text-sm text-zinc-500">Тренировок</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-3xl font-bold text-green-500">{stats.totalSets}</div>
-              <div className="text-sm text-zinc-500">Подходов</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-3xl font-bold text-yellow-500">{stats.totalWeight}</div>
-              <div className="text-sm text-zinc-500">Тонн поднято</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-3xl font-bold text-purple-500">{stats.last7Days}</div>
-              <div className="text-sm text-zinc-500">За 7 дней</div>
-            </Card>
-          </div>
           
-          {/* Топ групп мышц */}
-          <Card className="p-4">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-5 h-5 text-blue-500" />
-              <h3 className="font-semibold text-zinc-200">Топ групп мышц</h3>
+          {/* Алерты */}
+          {analytics?.alerts && analytics.alerts.length > 0 && (
+            <div className="space-y-2">
+              {analytics.alerts.slice(0, 3).map((alert, i) => (
+                <Card key={i} className={`p-3 border-l-4 ${
+                  alert.type === 'plateau' ? 'border-l-yellow-500 bg-yellow-500/5' :
+                  alert.type === 'strength_drop' ? 'border-l-red-500 bg-red-500/5' :
+                  alert.type === 'imbalance' ? 'border-l-orange-500 bg-orange-500/5' :
+                  'border-l-blue-500 bg-blue-500/5'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className={`w-4 h-4 ${
+                      alert.type === 'plateau' ? 'text-yellow-500' :
+                      alert.type === 'strength_drop' ? 'text-red-500' :
+                      alert.type === 'imbalance' ? 'text-orange-500' :
+                      'text-blue-500'
+                    }`} />
+                    <span className="text-sm text-zinc-300">
+                      {alert.type === 'plateau' && `Плато в "${alert.exercise}" — ${alert.weeks} нед`}
+                      {alert.type === 'strength_drop' && `Падение силы в "${alert.exercise}" (${alert.change}%)`}
+                      {alert.type === 'imbalance' && alert.message}
+                      {alert.type === 'low_frequency' && `${alert.muscle}: всего ${alert.frequency}×/нед`}
+                    </span>
+                  </div>
+                </Card>
+              ))}
             </div>
-            <div className="space-y-3">
-              {stats.topMuscleGroups.map(([name, count], i) => {
-                const maxCount = stats.topMuscleGroups[0][1] as number;
-                const percentage = ((count as number) / maxCount) * 100;
-                return (
-                  <div key={name}>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-zinc-300">{name}</span>
-                      <span className="text-zinc-500">{count} тренировок</span>
+          )}
+
+          {/* Секция 1: e1RM Топ упражнений */}
+          {topExercises.length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Zap className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold text-zinc-200">Топ по силе (e1RM)</h3>
+              </div>
+              <div className="space-y-3">
+                {topExercises.map((ex, i) => (
+                  <div key={ex.id} className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-zinc-500 w-5">{i + 1}</span>
+                        <div className="truncate">
+                          <div className="text-sm font-medium text-zinc-200 truncate">{ex.name}</div>
+                          <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${percentage}%` }}
-                        transition={{ delay: i * 0.1, duration: 0.5 }}
-                        className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"
-                      />
+                    <div className="flex items-center gap-2 ml-2">
+                      {ex.plateauWeeks >= 3 && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-500 rounded font-medium">
+                          ПЛАТО
+                        </span>
+                      )}
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-zinc-100">{ex.currentE1RM}</div>
+                        <div className={`text-xs flex items-center justify-end gap-0.5 ${
+                          ex.weeklyChange > 0 ? 'text-green-500' : 
+                          ex.weeklyChange < 0 ? 'text-red-500' : 'text-zinc-500'
+                        }`}>
+                          {ex.weeklyChange > 0 ? <ArrowUp className="w-3 h-3" /> : 
+                           ex.weeklyChange < 0 ? <ArrowDown className="w-3 h-3" /> : null}
+                          {ex.weeklyChange !== 0 && `${Math.abs(ex.weeklyChange)}%`}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-          
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Секция 2: Push/Pull/Legs баланс */}
+          {analytics?.balance && (analytics.balance.push > 0 || analytics.balance.pull > 0 || analytics.balance.legs > 0) && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Target className="w-5 h-5 text-blue-500" />
+                <h3 className="font-semibold text-zinc-200">Баланс нагрузки</h3>
+              </div>
+              
+              {/* Stacked bar */}
+              <div className="h-6 rounded-full overflow-hidden flex mb-3">
+                {analytics.balance.push > 0 && (
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${analytics.balance.push}%` }}
+                    className="bg-blue-500 h-full"
+                  />
+                )}
+                {analytics.balance.pull > 0 && (
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${analytics.balance.pull}%` }}
+                    transition={{ delay: 0.1 }}
+                    className="bg-green-500 h-full"
+                  />
+                )}
+                {analytics.balance.legs > 0 && (
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${analytics.balance.legs}%` }}
+                    transition={{ delay: 0.2 }}
+                    className="bg-purple-500 h-full"
+                  />
+                )}
+              </div>
+              
+              <div className="flex justify-between text-sm">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-blue-500" />
+                  <span className="text-zinc-400">Push</span>
+                  <span className="font-bold text-zinc-200">{analytics.balance.push}%</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-green-500" />
+                  <span className="text-zinc-400">Pull</span>
+                  <span className="font-bold text-zinc-200">{analytics.balance.pull}%</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-purple-500" />
+                  <span className="text-zinc-400">Legs</span>
+                  <span className="font-bold text-zinc-200">{analytics.balance.legs}%</span>
+                </div>
+              </div>
+              
+              {/* Подсказка про идеальный баланс */}
+              <div className="mt-3 text-xs text-zinc-500">
+                Идеально: ~33% каждая группа
+              </div>
+            </Card>
+          )}
+
+          {/* Секция 3: Частота по мышцам */}
+          {muscleFrequency.length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity className="w-5 h-5 text-green-500" />
+                <h3 className="font-semibold text-zinc-200">Частота тренировок</h3>
+              </div>
+              <div className="space-y-2">
+                {muscleFrequency.map(muscle => {
+                  const freq = muscle.weeklyFrequency;
+                  const color = freq >= 2 ? 'text-green-500' : freq >= 1 ? 'text-yellow-500' : 'text-red-500';
+                  const bgColor = freq >= 2 ? 'bg-green-500' : freq >= 1 ? 'bg-yellow-500' : 'bg-red-500';
+                  const status = freq >= 2 ? 'Оптимально' : freq >= 1 ? 'Поддержание' : 'Мало';
+                  
+                  return (
+                    <div key={muscle.name} className="flex items-center justify-between py-1">
+                      <span className="text-sm text-zinc-300">{muscle.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${color}`}>{status}</span>
+                        <div className={`px-2 py-0.5 rounded ${bgColor}/20`}>
+                          <span className={`text-sm font-bold ${color}`}>{freq}×</span>
+                          <span className="text-xs text-zinc-500">/нед</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 text-xs text-zinc-500">
+                Для роста: 2×/нед • Поддержание: 1×/нед
+              </div>
+            </Card>
+          )}
+
           {/* Мотивация */}
           <Card className="p-4 bg-gradient-to-br from-blue-500/10 to-purple-500/10 border-blue-500/20">
             <div className="flex items-center gap-3">
@@ -1146,11 +1260,15 @@ const AnalyticsScreen = ({ onBack }: any) => {
                 <Trophy className="w-6 h-6 text-blue-400" />
               </div>
               <div>
-                <div className="font-semibold text-zinc-200">Отличный прогресс!</div>
+                <div className="font-semibold text-zinc-200">
+                  {topExercises.length > 0 && topExercises[0].weeklyChange > 0 
+                    ? 'Сила растёт!' 
+                    : 'Продолжай тренироваться!'}
+                </div>
                 <div className="text-sm text-zinc-400">
-                  {stats.totalWorkouts >= 10 
-                    ? `Уже ${stats.totalWorkouts} тренировок. Так держать!` 
-                    : `Ещё ${10 - stats.totalWorkouts} тренировок до первой цели!`}
+                  {topExercises.length > 0 
+                    ? `Лучший e1RM: ${topExercises[0].name} — ${topExercises[0].currentE1RM} кг`
+                    : 'Данные появятся после нескольких тренировок'}
                 </div>
               </div>
             </div>

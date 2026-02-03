@@ -109,6 +109,15 @@ async def api_global_history(request):
     except Exception as e:
         return json_response({"error": str(e)}, 500)
 
+async def api_analytics(request):
+    """Продвинутая аналитика: e1RM, частота, баланс, алерты"""
+    try:
+        data = sheets.get_analytics_data()
+        return json_response(data)
+    except Exception as e:
+        logger.error(f"Analytics error: {e}", exc_info=True)
+        return json_response({"error": str(e)}, 500)
+
 async def api_save_set(request):
     try:
         data = await request.json()
@@ -214,6 +223,7 @@ async def main():
         web.get('/api/init', api_init),
         web.get('/api/history', api_history),
         web.get('/api/global_history', api_global_history),
+        web.get('/api/analytics', api_analytics),
         web.get('/api/ping', api_ping),
         web.post('/api/save_set', api_save_set),
         web.post('/api/update_set', api_update_set),

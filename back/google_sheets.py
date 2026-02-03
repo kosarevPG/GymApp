@@ -613,3 +613,217 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Global history error: {e}")
             return []
+
+    def get_analytics_data(self) -> Dict:
+        """
+        Возвращает продвинутую аналитику:
+        - exerciseStats: e1RM, динамика силы, плато по упражнениям
+        - muscleGroupStats: частота, объём по группам мышц
+        - balance: Push/Pull/Legs баланс
+        - alerts: предупреждения
+        """
+        try:
+            all_values = self.log_sheet.get_all_values()
+            if not all_values or len(all_values) < 2:
+                return {"exerciseStats": {}, "muscleGroupStats": {}, "balance": {}, "alerts": []}
+            
+            all_ex_data = self.get_all_exercises()
+            exercises_map = {e['id']: e for e in all_ex_data['exercises']}
+            
+            # Маппинг групп мышц на категории
+            MUSCLE_CATEGORY = {
+                'Грудь': 'push', 'Плечи': 'push', 'Трицепс': 'push',
+                'Спина': 'pull', 'Бицепс': 'pull',
+                'Ноги': 'legs', 'Пресс': 'core', 'Кардио': 'cardio'
+            }
+            
+            data_rows = all_values[1:]
+            ex_id_idx, date_idx, weight_idx, reps_idx = 1, 0, 3, 4
+            
+            # Собираем данные по упражнениям
+            exercise_data = {}  # exercise_id -> {name, muscleGroup, sessions: [{date, weight, reps, e1rm, volume}]}
+            muscle_dates = {}   # muscleGroup -> set of dates
+            
+            for row in data_rows:
+                if len(row) <= 8:
+                    continue
+                
+                date_str = str(row[date_idx]).split(',')[0].strip()
+                if not date_str:
+                    continue
+                
+                ex_id = str(row[ex_id_idx]).strip()
+                ex_info = exercises_map.get(ex_id, {})
+                ex_name = ex_info.get('name', 'Unknown')
+                muscle_group = ex_info.get('muscleGroup', 'Other')
+                
+                weight = DataParser.to_float(row[weight_idx])
+                reps = DataParser.to_int(row[reps_idx])
+                
+                if weight <= 0 or reps <= 0:
+                    continue
+                
+                # e1RM по формуле Epley
+                e1rm = round(weight * (1 + reps / 30), 1)
+                volume = weight * reps
+                
+                if ex_id not in exercise_data:
+                    exercise_data[ex_id] = {
+                        "name": ex_name,
+                        "muscleGroup": muscle_group,
+                        "sessions": []
+                    }
+                
+                exercise_data[ex_id]["sessions"].append({
+                    "date": date_str,
+                    "weight": weight,
+                    "reps": reps,
+                    "e1rm": e1rm,
+                    "volume": volume
+                })
+                
+                # Трекаем даты для частоты
+                if muscle_group not in muscle_dates:
+                    muscle_dates[muscle_group] = set()
+                muscle_dates[muscle_group].add(date_str)
+            
+            # Обрабатываем статистику по упражнениям
+            exercise_stats = {}
+            for ex_id, data in exercise_data.items():
+                sessions = data["sessions"]
+                if not sessions:
+                    continue
+                
+                # Группируем по датам (берём макс e1RM за день)
+                daily_e1rm = {}
+                daily_volume = {}
+                for s in sessions:
+                    d = s["date"]
+                    if d not in daily_e1rm or s["e1rm"] > daily_e1rm[d]:
+                        daily_e1rm[d] = s["e1rm"]
+                    daily_volume[d] = daily_volume.get(d, 0) + s["volume"]
+                
+                # Сортируем по дате
+                sorted_dates = sorted(daily_e1rm.keys())
+                history = [{"date": d, "e1rm": daily_e1rm[d], "volume": daily_volume.get(d, 0)} for d in sorted_dates]
+                
+                current_e1rm = history[-1]["e1rm"] if history else 0
+                best_e1rm = max(daily_e1rm.values()) if daily_e1rm else 0
+                
+                # Изменение за неделю (последние 7 дней vs предыдущие 7)
+                weekly_change = 0
+                if len(history) >= 2:
+                    recent = [h["e1rm"] for h in history[-3:]]  # последние записи
+                    older = [h["e1rm"] for h in history[:-3][-3:]] if len(history) > 3 else []
+                    if recent and older:
+                        avg_recent = sum(recent) / len(recent)
+                        avg_older = sum(older) / len(older)
+                        if avg_older > 0:
+                            weekly_change = round((avg_recent - avg_older) / avg_older * 100, 1)
+                
+                # Определяем плато (e1RM не вырос > 2% за последние 4 записи)
+                plateau_weeks = 0
+                if len(history) >= 4:
+                    last_4 = [h["e1rm"] for h in history[-4:]]
+                    max_last_4 = max(last_4)
+                    min_last_4 = min(last_4)
+                    if max_last_4 > 0 and (max_last_4 - min_last_4) / max_last_4 < 0.02:
+                        plateau_weeks = 4
+                
+                exercise_stats[ex_id] = {
+                    "name": data["name"],
+                    "muscleGroup": data["muscleGroup"],
+                    "history": history[-10:],  # последние 10 записей
+                    "currentE1RM": current_e1rm,
+                    "bestE1RM": best_e1rm,
+                    "weeklyChange": weekly_change,
+                    "plateauWeeks": plateau_weeks
+                }
+            
+            # Статистика по группам мышц
+            muscle_group_stats = {}
+            total_volume_all = 0
+            category_volume = {"push": 0, "pull": 0, "legs": 0, "core": 0, "cardio": 0}
+            
+            # Считаем количество уникальных недель для частоты
+            all_dates = set()
+            for dates in muscle_dates.values():
+                all_dates.update(dates)
+            total_weeks = max(1, len(all_dates) / 7)  # приблизительно
+            
+            for muscle, dates in muscle_dates.items():
+                frequency = round(len(dates) / total_weeks, 1)
+                
+                # Считаем объём для этой мышцы
+                muscle_volume = 0
+                for ex_id, data in exercise_data.items():
+                    if data["muscleGroup"] == muscle:
+                        muscle_volume += sum(s["volume"] for s in data["sessions"])
+                
+                category = MUSCLE_CATEGORY.get(muscle, "other")
+                if category in category_volume:
+                    category_volume[category] += muscle_volume
+                total_volume_all += muscle_volume
+                
+                muscle_group_stats[muscle] = {
+                    "weeklyFrequency": frequency,
+                    "totalVolume": round(muscle_volume),
+                    "category": category
+                }
+            
+            # Push/Pull/Legs баланс
+            balance = {}
+            if total_volume_all > 0:
+                balance = {
+                    "push": round(category_volume["push"] / total_volume_all * 100),
+                    "pull": round(category_volume["pull"] / total_volume_all * 100),
+                    "legs": round(category_volume["legs"] / total_volume_all * 100)
+                }
+            
+            # Генерируем алерты
+            alerts = []
+            
+            # Алерт на плато
+            for ex_id, stats in exercise_stats.items():
+                if stats["plateauWeeks"] >= 3:
+                    alerts.append({
+                        "type": "plateau",
+                        "exercise": stats["name"],
+                        "weeks": stats["plateauWeeks"]
+                    })
+                # Алерт на падение силы
+                if stats["weeklyChange"] < -5:
+                    alerts.append({
+                        "type": "strength_drop",
+                        "exercise": stats["name"],
+                        "change": stats["weeklyChange"]
+                    })
+            
+            # Алерт на дисбаланс Push/Pull
+            if balance.get("push", 0) and balance.get("pull", 0):
+                diff = abs(balance["push"] - balance["pull"])
+                if diff > 15:
+                    alerts.append({
+                        "type": "imbalance",
+                        "message": f"Push/Pull дисбаланс: {balance['push']}% / {balance['pull']}%"
+                    })
+            
+            # Алерт на низкую частоту
+            for muscle, stats in muscle_group_stats.items():
+                if stats["weeklyFrequency"] < 1 and stats["totalVolume"] > 0:
+                    alerts.append({
+                        "type": "low_frequency",
+                        "muscle": muscle,
+                        "frequency": stats["weeklyFrequency"]
+                    })
+            
+            return {
+                "exerciseStats": exercise_stats,
+                "muscleGroupStats": muscle_group_stats,
+                "balance": balance,
+                "alerts": alerts
+            }
+            
+        except Exception as e:
+            logger.error(f"Analytics data error: {e}", exc_info=True)
+            return {"exerciseStats": {}, "muscleGroupStats": {}, "balance": {}, "alerts": []}
