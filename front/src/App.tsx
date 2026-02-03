@@ -32,6 +32,8 @@ interface WorkoutSet {
   rest: string;
   completed: boolean;
   prevWeight?: number;
+  order?: number;
+  setGroupId?: string;
 }
 
 interface HistoryItem {
@@ -92,6 +94,10 @@ const api = {
 
   saveSet: async (data: any) => {
       return await api.request('save_set', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  updateSet: async (data: any) => {
+      return await api.request('update_set', { method: 'POST', body: JSON.stringify(data) });
   },
 
   createExercise: async (name: string, group: string) => {
@@ -428,18 +434,15 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
   const delta = set.prevWeight ? (parseFloat(set.weight) - set.prevWeight) : 0;
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
   const deltaColor = delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-zinc-500';
-
-  // Классы для "задизейбленных" инпутов (но не кнопки!)
-  const inputDisabledClass = set.completed ? 'opacity-50 pointer-events-none' : '';
+  const isCompleted = set.completed;
 
   return (
-    // УБРАЛИ 'grayscale' и 'opacity-50' отсюда, чтобы кнопка была яркой
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3`}>
-      <button onClick={() => onComplete(set.id)} className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${set.completed ? 'bg-yellow-500 border-yellow-500' : 'bg-transparent border-zinc-700 hover:border-zinc-500'}`}>
-        {set.completed && <Check className="w-6 h-6 text-black stroke-[3]" />}
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3">
+      <button onClick={() => onComplete(set.id)} className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${isCompleted ? 'bg-yellow-500 border-yellow-500' : 'bg-transparent border-zinc-700 hover:border-zinc-500'}`}>
+        {isCompleted && <Check className="w-6 h-6 text-black stroke-[3]" />}
       </button>
       
-      <div className={`flex flex-col gap-1 ${inputDisabledClass}`}>
+      <div className="flex flex-col gap-1">
         <input 
           type="number" 
           inputMode="decimal" 
@@ -463,7 +466,7 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.reps} 
         onChange={e => onUpdate(set.id, 'reps', e.target.value)}
         onFocus={e => e.target.select()}
-        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
+        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
       />
       <input 
         type="number" 
@@ -472,9 +475,13 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete }: { set: any; onUpdate: (
         value={set.rest} 
         onChange={e => onUpdate(set.id, 'rest', e.target.value)}
         onFocus={e => e.target.select()}
-        className={`w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums ${inputDisabledClass}`} 
+        className="w-full h-12 bg-zinc-800 rounded-xl text-center text-zinc-400 focus:text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
       />
-      <button onClick={() => onDelete(set.id)} className={`w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500 ${inputDisabledClass}`}><Trash2 className="w-5 h-5" /></button>
+      {isCompleted ? (
+        <div className="w-10 h-12 flex items-center justify-center text-yellow-500"><Pencil className="w-5 h-5" /></div>
+      ) : (
+        <button onClick={() => onDelete(set.id)} className="w-10 h-12 flex items-center justify-center text-zinc-600 hover:text-red-500"><Trash2 className="w-5 h-5" /></button>
+      )}
     </motion.div>
   );
 };
@@ -774,26 +781,29 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
 
   useEffect(() => { activeExercises.forEach(id => loadExerciseData(id)); }, [activeExercises]);
 
+  const updateSetDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
+
   const handleCompleteSet = async (exId: string, setId: string) => {
     const set = sessionData[exId].sets.find(s => s.id === setId);
     if (!set || set.completed) return;
     if (!set.weight || !set.reps) { notify('error'); return; }
     
     haptic('medium');
-    // Optimistic
-    setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true } : s) } }));
+    const order = incrementOrder();
+    // Optimistic - сохраняем order и setGroupId для возможности редактирования
+    setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true, order, setGroupId: localGroupId } : s) } }));
     // Сбрасываем таймер и сразу запускаем заново (кнопка останется "Стоп")
     timer.resetAndStart();
 
     try {
-        const order = incrementOrder();
         await api.saveSet({
             exercise_id: exId,
             weight: parseFloat(set.weight),
             reps: parseInt(set.reps),
             rest: parseFloat(set.rest) || 0,
             note: sessionData[exId].note,
-            set_group_id: localGroupId, // Используем локальный ID для группировки упражнений на этом экране
+            set_group_id: localGroupId,
             order
         });
         notify('success');
@@ -803,7 +813,31 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
   };
 
   const handleUpdateSet = (exId: string, setId: string, field: string, val: string) => {
-    setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } }));
+    setSessionData(prev => {
+      const next = { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } };
+      const set = next[exId].sets.find(s => s.id === setId);
+      
+      // Если подход выполнен и имеет order/setGroupId - отправляем обновление с debounce
+      if (set?.completed && set.order != null && set.setGroupId) {
+        if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current);
+        updateSetDebounceRef.current = setTimeout(async () => {
+          updateSetDebounceRef.current = null;
+          try {
+            await api.updateSet({
+              exercise_id: exId,
+              set_group_id: set.setGroupId,
+              order: set.order,
+              weight: parseFloat(set.weight) || 0,
+              reps: parseInt(set.reps) || 0,
+              rest: parseFloat(set.rest) || 0
+            });
+          } catch (e) {
+            console.error('Failed to update set:', e);
+          }
+        }, 600);
+      }
+      return next;
+    });
   };
   
   const handleAddSet = (exId: string) => {

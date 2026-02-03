@@ -118,6 +118,19 @@ async def api_save_set(request):
     except Exception as e:
         return json_response({"error": str(e)}, 500)
 
+async def api_update_set(request):
+    """Обновить запись подхода в Google Sheets (кг, повт, мин)"""
+    try:
+        data = await request.json()
+        if not data.get('set_group_id') or not data.get('exercise_id') or data.get('order') is None:
+            return json_response({"error": "Missing set_group_id, exercise_id or order"}, 400)
+        if sheets.update_workout_set(data):
+            return json_response({"status": "success"})
+        return json_response({"error": "Failed to update"}, 500)
+    except Exception as e:
+        logger.error(f"Update set error: {e}", exc_info=True)
+        return json_response({"error": str(e)}, 500)
+
 async def api_create_exercise(request):
     try:
         data = await request.json()
@@ -195,6 +208,7 @@ async def main():
         web.get('/api/global_history', api_global_history),
         web.get('/api/ping', api_ping),
         web.post('/api/save_set', api_save_set),
+        web.post('/api/update_set', api_update_set),
         web.post('/api/create_exercise', api_create_exercise),
         web.post('/api/update_exercise', api_update_exercise),
         web.post('/api/upload_image', api_upload_image),

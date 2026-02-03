@@ -265,6 +265,85 @@ class GoogleSheetsManager:
             logger.error(f"Save set error: {e}")
             return False
 
+    def update_workout_set(self, data: Dict) -> bool:
+        """
+        Обновить запись подхода в LOG по set_group_id, exercise_id, order.
+        Обновляет weight, reps, rest.
+        """
+        try:
+            set_group_id = str(data.get('set_group_id', '')).strip()
+            exercise_id = str(data.get('exercise_id', '')).strip()
+            order_val = DataParser.to_int(data.get('order'), -1)
+            
+            if not set_group_id or not exercise_id or order_val < 0:
+                logger.error("update_workout_set: missing set_group_id, exercise_id or order")
+                return False
+
+            all_values = self.log_sheet.get_all_values()
+            if not all_values or len(all_values) < 2:
+                logger.error("update_workout_set: LOG sheet is empty")
+                return False
+
+            headers = all_values[0]
+            data_rows = all_values[1:]
+
+            # Стандартные индексы колонок (A-I)
+            ex_id_idx = 1
+            set_group_idx = 6
+            order_idx = 8
+            weight_idx = 3
+            reps_idx = 4
+            rest_idx = 5
+
+            # Автоопределение колонок по заголовкам
+            for i, header in enumerate(headers):
+                h = str(header).lower().strip().replace(' ', '_').replace('-', '_')
+                if 'exercise' in h and 'id' in h:
+                    ex_id_idx = i
+                elif ('set' in h and 'group' in h) or 'group_id' in h:
+                    set_group_idx = i
+                elif 'order' in h:
+                    order_idx = i
+                elif 'weight' in h:
+                    weight_idx = i
+                elif 'reps' in h or 'repetitions' in h:
+                    reps_idx = i
+                elif 'rest' in h:
+                    rest_idx = i
+
+            # Ищем строку по exercise_id, set_group_id, order
+            row_num = None
+            for idx, row in enumerate(data_rows):
+                if len(row) <= max(ex_id_idx, set_group_idx, order_idx):
+                    continue
+                r_ex = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
+                r_sg = str(row[set_group_idx]).strip() if set_group_idx < len(row) else ''
+                r_ord = DataParser.to_int(row[order_idx] if order_idx < len(row) else '', -1)
+                
+                if r_ex == exercise_id and r_sg == set_group_id and r_ord == order_val:
+                    row_num = idx + 2  # +1 для заголовка, +1 для 1-based индекса
+                    break
+
+            if row_num is None:
+                logger.error(f"update_workout_set: row not found for exercise_id={exercise_id}, set_group_id={set_group_id}, order={order_val}")
+                return False
+
+            # Обновляем значения
+            weight = DataParser.to_float(data.get('weight'))
+            reps = DataParser.to_int(data.get('reps'))
+            rest = DataParser.to_float(data.get('rest'))
+
+            self.log_sheet.update_cell(row_num, weight_idx + 1, weight)
+            self.log_sheet.update_cell(row_num, reps_idx + 1, reps)
+            self.log_sheet.update_cell(row_num, rest_idx + 1, rest)
+
+            self._invalidate_log_cache()
+            logger.info(f"Updated workout set row {row_num}: weight={weight}, reps={reps}, rest={rest}")
+            return True
+        except Exception as e:
+            logger.error(f"Update workout set error: {e}", exc_info=True)
+            return False
+
     def get_exercise_history(self, exercise_id: str, limit: int = 50) -> Dict:
         try:
             # Используем кэшированное чтение вместо get_all_values() для производительности
