@@ -818,29 +818,52 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     }
   };
 
+  const pendingUpdateRef = useRef<{ exId: string; setId: string; setGroupId: string; order: number } | null>(null);
+
   const handleUpdateSet = (exId: string, setId: string, field: string, val: string) => {
     setSessionData(prev => {
       const next = { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } };
       const set = next[exId].sets.find(s => s.id === setId);
       
-      // Если подход выполнен и имеет order/setGroupId - отправляем обновление с debounce
-      if (set?.completed && set.order != null && set.setGroupId) {
+      // Если подход выполнен, в режиме редактирования и имеет order/setGroupId - запоминаем для debounce
+      if (set?.completed && set.isEditing && set.order != null && set.setGroupId) {
+        pendingUpdateRef.current = { exId, setId, setGroupId: set.setGroupId, order: set.order };
+        
         if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current);
         updateSetDebounceRef.current = setTimeout(async () => {
           updateSetDebounceRef.current = null;
-          try {
-            await api.updateSet({
-              exercise_id: exId,
-              set_group_id: set.setGroupId,
-              order: set.order,
-              weight: parseFloat(set.weight) || 0,
-              reps: parseInt(set.reps) || 0,
-              rest: parseFloat(set.rest) || 0
-            });
-          } catch (e) {
-            console.error('Failed to update set:', e);
-          }
-        }, 600);
+          const pending = pendingUpdateRef.current;
+          if (!pending) return;
+          
+          // Получаем актуальные значения из текущего состояния
+          setSessionData(currentState => {
+            const currentSet = currentState[pending.exId]?.sets.find(s => s.id === pending.setId);
+            if (!currentSet) return currentState;
+            
+            // Отправляем запрос с актуальными значениями
+            api.updateSet({
+              exercise_id: pending.exId,
+              set_group_id: pending.setGroupId,
+              order: pending.order,
+              weight: parseFloat(currentSet.weight) || 0,
+              reps: parseInt(currentSet.reps) || 0,
+              rest: parseFloat(currentSet.rest) || 0
+            }).then(() => {
+              // После успешного сохранения - карандаш становится серым
+              setSessionData(s => ({
+                ...s,
+                [pending.exId]: {
+                  ...s[pending.exId],
+                  sets: s[pending.exId].sets.map(st => st.id === pending.setId ? { ...st, isEditing: false } : st)
+                }
+              }));
+            }).catch(e => console.error('Failed to update set:', e));
+            
+            return currentState; // Не меняем состояние в этом вызове
+          });
+          
+          pendingUpdateRef.current = null;
+        }, 800);
       }
       return next;
     });
