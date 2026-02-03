@@ -818,55 +818,59 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     }
   };
 
-  const pendingUpdateRef = useRef<{ exId: string; setId: string; setGroupId: string; order: number } | null>(null);
+  const sessionDataRef = useRef(sessionData);
+  useEffect(() => { sessionDataRef.current = sessionData; }, [sessionData]);
 
   const handleUpdateSet = (exId: string, setId: string, field: string, val: string) => {
     setSessionData(prev => {
       const next = { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, [field]: val } : s) } };
-      const set = next[exId].sets.find(s => s.id === setId);
+      return next;
+    });
+
+    // Проверяем нужно ли отправлять обновление
+    setTimeout(() => {
+      const currentData = sessionDataRef.current;
+      const set = currentData[exId]?.sets.find(s => s.id === setId);
       
-      // Если подход выполнен, в режиме редактирования и имеет order/setGroupId - запоминаем для debounce
       if (set?.completed && set.isEditing && set.order != null && set.setGroupId) {
-        pendingUpdateRef.current = { exId, setId, setGroupId: set.setGroupId, order: set.order };
-        
         if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current);
+        
         updateSetDebounceRef.current = setTimeout(async () => {
           updateSetDebounceRef.current = null;
-          const pending = pendingUpdateRef.current;
-          if (!pending) return;
+          // Получаем самые свежие данные
+          const latestData = sessionDataRef.current;
+          const latestSet = latestData[exId]?.sets.find(s => s.id === setId);
+          if (!latestSet || !latestSet.setGroupId) return;
+
+          console.log('Sending update:', { exId, setId, weight: latestSet.weight, reps: latestSet.reps, rest: latestSet.rest, order: latestSet.order, setGroupId: latestSet.setGroupId });
           
-          // Получаем актуальные значения из текущего состояния
-          setSessionData(currentState => {
-            const currentSet = currentState[pending.exId]?.sets.find(s => s.id === pending.setId);
-            if (!currentSet) return currentState;
+          try {
+            const result = await api.updateSet({
+              exercise_id: exId,
+              set_group_id: latestSet.setGroupId,
+              order: latestSet.order,
+              weight: parseFloat(latestSet.weight) || 0,
+              reps: parseInt(latestSet.reps) || 0,
+              rest: parseFloat(latestSet.rest) || 0
+            });
+            console.log('Update result:', result);
             
-            // Отправляем запрос с актуальными значениями
-            api.updateSet({
-              exercise_id: pending.exId,
-              set_group_id: pending.setGroupId,
-              order: pending.order,
-              weight: parseFloat(currentSet.weight) || 0,
-              reps: parseInt(currentSet.reps) || 0,
-              rest: parseFloat(currentSet.rest) || 0
-            }).then(() => {
+            if (result?.status === 'success') {
               // После успешного сохранения - карандаш становится серым
               setSessionData(s => ({
                 ...s,
-                [pending.exId]: {
-                  ...s[pending.exId],
-                  sets: s[pending.exId].sets.map(st => st.id === pending.setId ? { ...st, isEditing: false } : st)
+                [exId]: {
+                  ...s[exId],
+                  sets: s[exId].sets.map(st => st.id === setId ? { ...st, isEditing: false } : st)
                 }
               }));
-            }).catch(e => console.error('Failed to update set:', e));
-            
-            return currentState; // Не меняем состояние в этом вызове
-          });
-          
-          pendingUpdateRef.current = null;
+            }
+          } catch (e) {
+            console.error('Failed to update set:', e);
+          }
         }, 800);
       }
-      return next;
-    });
+    }, 0);
   };
   
   const handleToggleEdit = (exId: string, setId: string) => {
