@@ -505,7 +505,28 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
   // PR из истории
   const historyPR = useMemo(() => {
     if (!exerciseData.history.length) return 0;
-    return Math.max(...exerciseData.history.map((h: HistoryItem) => h.weight));
+    let maxWeight = 0;
+    for (const group of exerciseData.history) {
+      // Формат с sets (упрощённый)
+      if (group.sets) {
+        for (const s of group.sets) {
+          if (s.weight > maxWeight) maxWeight = s.weight;
+        }
+      }
+      // Формат с exercises (суперсет - для обратной совместимости)
+      if (group.exercises) {
+        for (const ex of group.exercises) {
+          for (const s of ex.sets || []) {
+            if (s.weight > maxWeight) maxWeight = s.weight;
+          }
+        }
+      }
+      // Старый плоский формат (для совместимости)
+      if (typeof group.weight === 'number' && group.weight > maxWeight) {
+        maxWeight = group.weight;
+      }
+    }
+    return maxWeight;
   }, [exerciseData.history]);
   
   // Максимальный вес в текущей сессии (из выполненных подходов)

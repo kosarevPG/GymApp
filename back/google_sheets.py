@@ -471,44 +471,15 @@ class GoogleSheetsManager:
                     grouped_by_date[date_val] = []
                 grouped_by_date[date_val].append(item)
             
+            # Упрощенный формат: просто подходы сгруппированные по дате
+            # Для истории одного упражнения суперсеты не имеют смысла
             result_history = []
             for date_val, items in grouped_by_date.items():
                 items.sort(key=lambda x: x.get('order', 0))
-                
-                # Упрощенная группировка по суперсетам
-                by_group = {}
-                standalone = []
-                
-                for item in items:
-                    sg_id = item.get('setGroupId')
-                    if sg_id:
-                        if sg_id not in by_group: by_group[sg_id] = []
-                        by_group[sg_id].append(item)
-                    else:
-                        standalone.append(item)
-                
-                # Добавляем суперсеты
-                for sg_id, group_items in by_group.items():
-                    if len(group_items) > 0:
-                         result_history.append({
-                            'date': date_val,
-                            'setGroupId': sg_id,
-                            'isSuperset': True,
-                            'exercises': [{
-                                'exerciseId': exercise_id, 
-                                'exerciseName': 'Current Exercise', 
-                                'sets': group_items
-                            }] 
-                        })
-                
-                # Добавляем обычные сеты
-                if standalone:
-                    result_history.append({
-                        'date': date_val,
-                        'setGroupId': None,
-                        'isSuperset': False,
-                        'sets': standalone
-                    })
+                result_history.append({
+                    'date': date_val,
+                    'sets': items  # Просто список подходов
+                })
 
             result_history.sort(key=lambda x: x.get('date', ''), reverse=True)
             return {"history": result_history[:limit], "note": last_note}
@@ -640,12 +611,15 @@ class GoogleSheetsManager:
             data_rows = all_values[1:]
             ex_id_idx, date_idx, weight_idx, reps_idx = 1, 0, 3, 4
             
+            logger.info(f"Analytics: found {len(data_rows)} rows, {len(exercises_map)} exercises")
+            
             # Собираем данные по упражнениям
             exercise_data = {}  # exercise_id -> {name, muscleGroup, sessions: [{date, weight, reps, e1rm, volume}]}
             muscle_dates = {}   # muscleGroup -> set of dates
             
             for row in data_rows:
-                if len(row) <= 8:
+                # Минимум: date (0), ex_id (1), name (2), weight (3), reps (4)
+                if len(row) < 5:
                     continue
                 
                 date_str = str(row[date_idx]).split(',')[0].strip()
