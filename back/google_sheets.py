@@ -632,47 +632,46 @@ class GoogleSheetsManager:
             
             # Логируем первые строки для отладки
             if data_rows:
-                logger.info(f"Analytics v2: first row sample: {data_rows[0][:6] if len(data_rows[0]) >= 6 else data_rows[0]}")
+                sample = data_rows[0][:6] if len(data_rows[0]) >= 6 else data_rows[0]
+                logger.info(f"Analytics v2: first row sample: {sample}")
             
             # ========== ШАГ 1: Сбор сырых данных ==========
             all_sets = []  # Все подходы с производными полями
-            skipped_dates = 0
-            parsed_dates = 0
             
-            for row in data_rows:
-                if len(row) < 5:
-                    continue
-                
-                date_str_raw = str(row[date_idx]).strip()
-                # Убираем время если есть (формат "03.02.2026, 10:30")
+            # Функция парсинга даты
+            def parse_date(date_str_raw: str):
+                """Парсит дату, возвращает (datetime_obj, date_str) или (None, date_str)"""
                 date_str = date_str_raw.split(',')[0].strip()
                 if not date_str:
-                    continue
+                    return None, ''
                 
-                # Парсим дату - пробуем много форматов
-                date_obj = None
                 DATE_FORMATS = [
+                    '%Y.%m.%d',      # 2026.02.03 (наш формат записи!)
                     '%Y-%m-%d',      # 2026-02-03
                     '%d.%m.%Y',      # 03.02.2026
                     '%d/%m/%Y',      # 03/02/2026
                     '%m/%d/%Y',      # 02/03/2026 (US format)
-                    '%Y.%m.%d',      # 2026.02.03
                     '%d-%m-%Y',      # 03-02-2026
                 ]
                 
                 for fmt in DATE_FORMATS:
                     try:
-                        date_obj = datetime.strptime(date_str, fmt)
-                        parsed_dates += 1
-                        break
+                        return datetime.strptime(date_str, fmt), date_str
                     except ValueError:
                         continue
                 
-                if date_obj is None:
-                    skipped_dates += 1
-                    if skipped_dates <= 3:
-                        logger.warning(f"Analytics v2: cannot parse date '{date_str_raw}'")
+                return None, date_str
+            
+            skipped = 0
+            for row in data_rows:
+                if len(row) < 5:
                     continue
+                
+                date_str_raw = str(row[date_idx]).strip()
+                date_obj, date_str = parse_date(date_str_raw)
+                
+                # Даже если не распарсили дату, продолжаем сбор данных
+                # (используем строку для группировки)
                 
                 ex_id = str(row[ex_id_idx]).strip()
                 ex_info = exercises_map.get(ex_id, {})
@@ -690,8 +689,12 @@ class GoogleSheetsManager:
                 e1rm = round(weight * (1 + reps / 30), 1)  # Epley
                 volume = weight * reps
                 
+                if not date_str:
+                    skipped += 1
+                    continue
+                    
                 all_sets.append({
-                    'date': date_obj,
+                    'date': date_obj,  # может быть None
                     'date_str': date_str,
                     'ex_id': ex_id,
                     'ex_name': ex_name,
@@ -703,7 +706,9 @@ class GoogleSheetsManager:
                     'volume': volume
                 })
             
-            logger.info(f"Analytics v2: parsed {parsed_dates} dates, skipped {skipped_dates}, collected {len(all_sets)} sets")
+            # Статистика парсинга
+            parsed_count = sum(1 for s in all_sets if s['date'] is not None)
+            logger.info(f"Analytics v2: collected {len(all_sets)} sets, {parsed_count} with parsed dates, {skipped} skipped")
             
             if not all_sets:
                 logger.warning("Analytics v2: no sets collected, returning empty")
@@ -730,10 +735,21 @@ class GoogleSheetsManager:
             window_14d = today - timedelta(days=14)
             window_21d = today - timedelta(days=21)
             
-            sets_7d = [s for s in all_sets if s['date'] >= window_7d]
-            sets_14d = [s for s in all_sets if s['date'] >= window_14d]
-            sets_21d = [s for s in all_sets if s['date'] >= window_21d]
-            sets_older = [s for s in all_sets if s['date'] < window_21d]
+            # Если даты распарсились - используем datetime, иначе берём всё
+            has_dates = any(s['date'] is not None for s in all_sets)
+            
+            if has_dates:
+                sets_7d = [s for s in all_sets if s['date'] and s['date'] >= window_7d]
+                sets_14d = [s for s in all_sets if s['date'] and s['date'] >= window_14d]
+                sets_21d = [s for s in all_sets if s['date'] and s['date'] >= window_21d]
+                sets_older = [s for s in all_sets if s['date'] and s['date'] < window_21d]
+            else:
+                # Fallback: все данные считаем "недавними"
+                logger.warning("Analytics v2: no parsed dates, using all data as recent")
+                sets_7d = all_sets
+                sets_14d = all_sets
+                sets_21d = all_sets
+                sets_older = []
             
             # ========== ШАГ 4: Агрегаты по упражнениям ==========
             exercise_stats = {}
@@ -779,9 +795,16 @@ class GoogleSheetsManager:
                     })
                 
                 # Метрики за окна
-                sets_14d_ex = [s for s in sets if s['date'] >= window_14d]
-                sets_21d_ex = [s for s in sets if s['date'] >= window_21d]
-                sets_older_ex = [s for s in sets if s['date'] < window_14d]
+                if has_dates:
+                    sets_14d_ex = [s for s in sets if s['date'] and s['date'] >= window_14d]
+                    sets_21d_ex = [s for s in sets if s['date'] and s['date'] >= window_21d]
+                    sets_older_ex = [s for s in sets if s['date'] and s['date'] < window_14d]
+                else:
+                    # Fallback: делим по индексу (новые = последняя половина)
+                    mid = len(sets) // 2
+                    sets_14d_ex = sets[mid:]
+                    sets_21d_ex = sets
+                    sets_older_ex = sets[:mid] if mid > 0 else []
                 
                 # e1RM тренд (14 дней)
                 e1rm_recent = max([s['e1rm'] for s in sets_14d_ex]) if sets_14d_ex else 0
