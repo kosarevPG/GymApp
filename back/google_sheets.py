@@ -275,10 +275,15 @@ class GoogleSheetsManager:
             exercise_id = str(data.get('exercise_id', '')).strip()
             order_val = DataParser.to_int(data.get('order'), -1)
             
+            logger.info(f"update_workout_set: searching for ex={exercise_id}, sg={set_group_id}, order={order_val}")
+            
             if not set_group_id or not exercise_id or order_val < 0:
                 logger.error("update_workout_set: missing set_group_id, exercise_id or order")
                 return False
 
+            # Принудительно перечитываем данные (без кэша)
+            import time
+            time.sleep(0.5)  # Небольшая задержка чтобы Google Sheets успел обновиться
             all_values = self.log_sheet.get_all_values()
             if not all_values or len(all_values) < 2:
                 logger.error("update_workout_set: LOG sheet is empty")
@@ -286,6 +291,7 @@ class GoogleSheetsManager:
 
             headers = all_values[0]
             data_rows = all_values[1:]
+            logger.info(f"update_workout_set: headers={headers}, total_rows={len(data_rows)}")
 
             # Стандартные индексы колонок (A-I)
             ex_id_idx = 1
@@ -311,8 +317,11 @@ class GoogleSheetsManager:
                 elif 'rest' in h:
                     rest_idx = i
 
+            logger.info(f"update_workout_set: column indices - ex_id={ex_id_idx}, set_group={set_group_idx}, order={order_idx}")
+
             # Ищем строку по exercise_id, set_group_id, order
             row_num = None
+            matching_rows_debug = []
             for idx, row in enumerate(data_rows):
                 if len(row) <= max(ex_id_idx, set_group_idx, order_idx):
                     continue
@@ -320,9 +329,16 @@ class GoogleSheetsManager:
                 r_sg = str(row[set_group_idx]).strip() if set_group_idx < len(row) else ''
                 r_ord = DataParser.to_int(row[order_idx] if order_idx < len(row) else '', -1)
                 
+                # Собираем строки с таким же exercise_id для отладки
+                if r_ex == exercise_id:
+                    matching_rows_debug.append(f"row{idx+2}: sg={r_sg}, order={r_ord}")
+                
                 if r_ex == exercise_id and r_sg == set_group_id and r_ord == order_val:
                     row_num = idx + 2  # +1 для заголовка, +1 для 1-based индекса
                     break
+            
+            if matching_rows_debug:
+                logger.info(f"update_workout_set: rows with same exercise_id: {matching_rows_debug[-5:]}")
 
             if row_num is None:
                 logger.error(f"update_workout_set: row not found for exercise_id={exercise_id}, set_group_id={set_group_id}, order={order_val}")
