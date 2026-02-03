@@ -3,7 +3,7 @@ import {
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
-  History as HistoryIcon, Activity, Link as LinkIcon
+  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -14,7 +14,7 @@ const WORKOUT_STORAGE_KEY = 'gym_workout_state_v2'; // Ключ для хран�
 
 // --- TYPES ---
 
-type Screen = 'home' | 'exercises' | 'workout' | 'history';
+type Screen = 'home' | 'exercises' | 'workout' | 'history' | 'analytics';
 
 interface Exercise {
   id: string;
@@ -555,7 +555,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
 
 // --- SCREENS ---
 
-const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory, searchQuery }: any) => {
+const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory, onAnalytics, searchQuery }: any) => {
   return (
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 space-y-6">
     <div className="flex items-center gap-2">
@@ -563,6 +563,7 @@ const HomeScreen = ({ groups, onSearch, onSelectGroup, onAllExercises, onHistory
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <Input placeholder="Найти..." value={searchQuery || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} className="pl-12 bg-zinc-900 w-full" />
       </div>
+      <button onClick={onAnalytics} className="p-3 bg-zinc-900 rounded-xl text-zinc-400 hover:text-blue-500"><BarChart3 className="w-6 h-6" /></button>
       <button onClick={onHistory} className="p-3 bg-zinc-900 rounded-xl text-zinc-400 hover:text-blue-500"><HistoryIcon className="w-6 h-6" /></button>
     </div>
     <div className="flex flex-col space-y-2">
@@ -1012,6 +1013,157 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       </Modal>
       <div className="fixed bottom-6 left-6 z-20"><button onClick={handleFinish} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
     </div>
+  );
+};
+
+const AnalyticsScreen = ({ onBack }: any) => {
+  const [history, setHistory] = useState<GlobalWorkoutSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => { 
+    api.getGlobalHistory().then(data => {
+      setHistory(data);
+      setLoading(false);
+    });
+  }, []);
+
+  // Статистика
+  const stats = useMemo(() => {
+    if (!history.length) return null;
+    
+    const totalWorkouts = history.length;
+    const uniqueDays = new Set(history.map(h => h.date)).size;
+    
+    // Группы мышц
+    const muscleGroupCount: Record<string, number> = {};
+    history.forEach(h => {
+      h.muscleGroups.forEach(mg => {
+        muscleGroupCount[mg] = (muscleGroupCount[mg] || 0) + 1;
+      });
+    });
+    
+    // Топ группы мышц
+    const topMuscleGroups = Object.entries(muscleGroupCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    // Общее количество подходов
+    let totalSets = 0;
+    let totalWeight = 0;
+    history.forEach(h => {
+      if (h.exercises) {
+        h.exercises.forEach((ex: any) => {
+          if (ex.sets) {
+            totalSets += ex.sets.length;
+            ex.sets.forEach((s: any) => {
+              totalWeight += (s.weight || 0) * (s.reps || 0);
+            });
+          }
+        });
+      }
+    });
+    
+    // Последние 7 дней
+    const last7Days = history.slice(0, 7).length;
+    
+    return {
+      totalWorkouts,
+      uniqueDays,
+      totalSets,
+      totalWeight: Math.round(totalWeight / 1000), // в тоннах
+      topMuscleGroups,
+      last7Days
+    };
+  }, [history]);
+
+  return (
+    <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
+      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4 flex items-center gap-4">
+        <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white"><ChevronLeft className="w-6 h-6" /></button>
+        <h1 className="text-xl font-bold">Аналитика</h1>
+      </div>
+      
+      {loading ? (
+        <div className="p-4 space-y-4">
+          {[1,2,3].map(i => <div key={i} className="h-24 bg-zinc-900 rounded-2xl animate-pulse" />)}
+        </div>
+      ) : stats ? (
+        <div className="p-4 space-y-4 pb-20">
+          {/* Главные метрики */}
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4">
+              <div className="text-3xl font-bold text-blue-500">{stats.totalWorkouts}</div>
+              <div className="text-sm text-zinc-500">Тренировок</div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-3xl font-bold text-green-500">{stats.totalSets}</div>
+              <div className="text-sm text-zinc-500">Подходов</div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-3xl font-bold text-yellow-500">{stats.totalWeight}</div>
+              <div className="text-sm text-zinc-500">Тонн поднято</div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-3xl font-bold text-purple-500">{stats.last7Days}</div>
+              <div className="text-sm text-zinc-500">За 7 дней</div>
+            </Card>
+          </div>
+          
+          {/* Топ групп мышц */}
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-5 h-5 text-blue-500" />
+              <h3 className="font-semibold text-zinc-200">Топ групп мышц</h3>
+            </div>
+            <div className="space-y-3">
+              {stats.topMuscleGroups.map(([name, count], i) => {
+                const maxCount = stats.topMuscleGroups[0][1] as number;
+                const percentage = ((count as number) / maxCount) * 100;
+                return (
+                  <div key={name}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-zinc-300">{name}</span>
+                      <span className="text-zinc-500">{count} тренировок</span>
+                    </div>
+                    <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${percentage}%` }}
+                        transition={{ delay: i * 0.1, duration: 0.5 }}
+                        className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+          
+          {/* Мотивация */}
+          <Card className="p-4 bg-gradient-to-br from-blue-500/10 to-purple-500/10 border-blue-500/20">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                <Trophy className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <div className="font-semibold text-zinc-200">Отличный прогресс!</div>
+                <div className="text-sm text-zinc-400">
+                  {stats.totalWorkouts >= 10 
+                    ? `Уже ${stats.totalWorkouts} тренировок. Так держать!` 
+                    : `Ещё ${10 - stats.totalWorkouts} тренировок до первой цели!`}
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      ) : (
+        <div className="p-4 text-center text-zinc-500 mt-20">
+          <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <p>Пока нет данных для аналитики</p>
+          <p className="text-sm mt-2">Начни тренироваться!</p>
+        </div>
+      )}
+    </motion.div>
   );
 };
 
@@ -1505,7 +1657,8 @@ const App = () => {
 
   return (
     <div className="bg-zinc-950 min-h-screen text-zinc-50 font-sans selection:bg-blue-500/30 pt-24">
-      {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} searchQuery={searchQuery} />}
+      {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} onAnalytics={() => setScreen('analytics')} searchQuery={searchQuery} />}
+      {screen === 'analytics' && <AnalyticsScreen onBack={() => setScreen('home')} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
       {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} allExercises={allExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} onEditExercise={(ex: Exercise) => setExerciseToEdit(ex)} />}
       {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} />}
