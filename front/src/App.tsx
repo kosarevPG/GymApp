@@ -4,7 +4,8 @@ import {
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
   History as HistoryIcon, Activity, Link as LinkIcon, BarChart3,
-  AlertTriangle, ArrowUp, ArrowDown, Zap, Target
+  AlertTriangle, ArrowUp, ArrowDown, Target,
+  TrendingUp, TrendingDown, Minus, Lightbulb, Scale
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -1043,62 +1044,109 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
   );
 };
 
-interface AnalyticsData {
-  exerciseStats: Record<string, {
+// --- ANALYTICS v2.0 ---
+// Принцип: каждая метрика должна вести к действию
+
+interface AnalyticsDataV2 {
+  status: {
+    progressIndex: 'up' | 'stable' | 'down';
+    progressValue: number;
+    fatigueIndex: 'low' | 'ok' | 'high';
+    fatigueValue: number;
+    avgE1rmTrend: number;
+  };
+  muscleBalance: {
+    stimulus: Record<string, number>;  // hard sets %
+    status: Record<string, 'low' | 'ok' | 'high'>;
+    targetRanges: Record<string, [number, number]>;
+    symmetry: { pair: string; ratio: number | string; isBalanced: boolean }[];
+  };
+  patterns: Record<string, { avgTrend: number; isPlateau: boolean }>;
+  inefficiencies: {
+    exerciseId: string;
     name: string;
     muscleGroup: string;
-    history: { date: string; e1rm: number; volume: number }[];
-    currentE1RM: number;
-    bestE1RM: number;
-    weeklyChange: number;
-    plateauWeeks: number;
-  }>;
-  muscleGroupStats: Record<string, {
-    weeklyFrequency: number;
-    totalVolume: number;
-    category: string;
-  }>;
-  balance: { push: number; pull: number; legs: number };
-  alerts: { type: string; exercise?: string; weeks?: number; message?: string; muscle?: string; frequency?: number; change?: number }[];
+    efficiency: number;
+    e1rmTrend: number;
+    volume21d: number;
+    reason: string;
+  }[];
+  recommendations: {
+    type: string;
+    priority: 'high' | 'medium' | 'low';
+    message: string;
+    action: string;
+  }[];
+  exerciseStats: Record<string, any>;
+  meta: {
+    totalSets: number;
+    hardSets7d: number;
+    avgIntensity7d: number;
+    daysAnalyzed: number;
+  };
 }
 
 const AnalyticsScreen = ({ onBack }: any) => {
-  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsDataV2 | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
   
   useEffect(() => { 
-    api.getAnalytics().then((data: AnalyticsData) => {
+    api.getAnalytics().then((data: AnalyticsDataV2) => {
       setAnalytics(data);
       setLoading(false);
     });
   }, []);
 
-  // Топ упражнений по e1RM
-  const topExercises = useMemo(() => {
-    if (!analytics?.exerciseStats) return [];
-    return Object.entries(analytics.exerciseStats)
-      .map(([id, data]) => ({ id, ...data }))
-      .filter(e => e.currentE1RM > 0)
-      .sort((a, b) => b.currentE1RM - a.currentE1RM)
-      .slice(0, 5);
-  }, [analytics]);
+  const hasData = analytics && analytics.meta?.totalSets > 0;
 
-  // Частота по мышцам
-  const muscleFrequency = useMemo(() => {
-    if (!analytics?.muscleGroupStats) return [];
-    return Object.entries(analytics.muscleGroupStats)
-      .map(([name, data]) => ({ name, ...data }))
-      .filter(m => m.totalVolume > 0)
-      .sort((a, b) => b.weeklyFrequency - a.weeklyFrequency);
-  }, [analytics]);
+  // Иконки и цвета для индексов
+  const getProgressIcon = (index: string) => {
+    if (index === 'up') return <TrendingUp className="w-5 h-5" />;
+    if (index === 'down') return <TrendingDown className="w-5 h-5" />;
+    return <Minus className="w-5 h-5" />;
+  };
+  
+  const getProgressColor = (index: string) => {
+    if (index === 'up') return 'text-green-500';
+    if (index === 'down') return 'text-red-500';
+    return 'text-zinc-400';
+  };
+  
+  const getFatigueColor = (index: string) => {
+    if (index === 'low') return 'text-blue-400';
+    if (index === 'high') return 'text-red-500';
+    return 'text-green-500';
+  };
+  
+  const getFatigueBg = (index: string) => {
+    if (index === 'low') return 'bg-blue-500/20';
+    if (index === 'high') return 'bg-red-500/20';
+    return 'bg-green-500/20';
+  };
 
-  const hasData = analytics && (topExercises.length > 0 || muscleFrequency.length > 0);
+  const getPriorityColor = (priority: string) => {
+    if (priority === 'high') return 'border-l-red-500 bg-red-500/5';
+    if (priority === 'medium') return 'border-l-yellow-500 bg-yellow-500/5';
+    return 'border-l-blue-500 bg-blue-500/5';
+  };
+
+  const getBalanceStatusIcon = (status: string) => {
+    if (status === 'ok') return <Check className="w-3 h-3 text-green-500" />;
+    if (status === 'low') return <ArrowDown className="w-3 h-3 text-red-500" />;
+    return <ArrowUp className="w-3 h-3 text-yellow-500" />;
+  };
 
   return (
     <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
       <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4 flex items-center gap-4">
         <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white"><ChevronLeft className="w-6 h-6" /></button>
         <h1 className="text-xl font-bold">Аналитика</h1>
+        {hasData && (
+          <span className="ml-auto text-xs text-zinc-500">
+            {analytics?.meta?.daysAnalyzed} дней данных
+          </span>
+        )}
       </div>
       
       {loading ? (
@@ -1108,71 +1156,67 @@ const AnalyticsScreen = ({ onBack }: any) => {
       ) : hasData ? (
         <div className="p-4 space-y-4 pb-20">
           
-          {/* Алерты */}
-          {analytics?.alerts && analytics.alerts.length > 0 && (
-            <div className="space-y-2">
-              {analytics.alerts.slice(0, 3).map((alert, i) => (
-                <Card key={i} className={`p-3 border-l-4 ${
-                  alert.type === 'plateau' ? 'border-l-yellow-500 bg-yellow-500/5' :
-                  alert.type === 'strength_drop' ? 'border-l-red-500 bg-red-500/5' :
-                  alert.type === 'imbalance' ? 'border-l-orange-500 bg-orange-500/5' :
-                  'border-l-blue-500 bg-blue-500/5'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className={`w-4 h-4 ${
-                      alert.type === 'plateau' ? 'text-yellow-500' :
-                      alert.type === 'strength_drop' ? 'text-red-500' :
-                      alert.type === 'imbalance' ? 'text-orange-500' :
-                      'text-blue-500'
-                    }`} />
-                    <span className="text-sm text-zinc-300">
-                      {alert.type === 'plateau' && `Плато в "${alert.exercise}" — ${alert.weeks} нед`}
-                      {alert.type === 'strength_drop' && `Падение силы в "${alert.exercise}" (${alert.change}%)`}
-                      {alert.type === 'imbalance' && alert.message}
-                      {alert.type === 'low_frequency' && `${alert.muscle}: всего ${alert.frequency}×/нед`}
-                    </span>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* Секция 1: e1RM Топ упражнений */}
-          {topExercises.length > 0 && (
+          {/* === БЛОК 1: СТАТУС === */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Progress Index */}
             <Card className="p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-5 h-5 text-yellow-500" />
-                <h3 className="font-semibold text-zinc-200">Топ по силе (e1RM)</h3>
+              <div className="text-xs text-zinc-500 mb-2">ПРОГРЕСС</div>
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-lg ${analytics?.status?.progressIndex === 'up' ? 'bg-green-500/20' : analytics?.status?.progressIndex === 'down' ? 'bg-red-500/20' : 'bg-zinc-800'}`}>
+                  <span className={getProgressColor(analytics?.status?.progressIndex || 'stable')}>
+                    {getProgressIcon(analytics?.status?.progressIndex || 'stable')}
+                  </span>
+                </div>
+                <div>
+                  <div className={`text-lg font-bold ${getProgressColor(analytics?.status?.progressIndex || 'stable')}`}>
+                    {analytics?.status?.progressIndex === 'up' ? 'Растёт' : 
+                     analytics?.status?.progressIndex === 'down' ? 'Падает' : 'Стабильно'}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {analytics?.status?.avgE1rmTrend > 0 ? '+' : ''}{analytics?.status?.avgE1rmTrend}% e1RM
+                  </div>
+                </div>
               </div>
-              <div className="space-y-3">
-                {topExercises.map((ex, i) => (
-                  <div key={ex.id} className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg font-bold text-zinc-500 w-5">{i + 1}</span>
-                        <div className="truncate">
-                          <div className="text-sm font-medium text-zinc-200 truncate">{ex.name}</div>
-                          <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-2">
-                      {ex.plateauWeeks >= 3 && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-500 rounded font-medium">
-                          ПЛАТО
-                        </span>
-                      )}
-                      <div className="text-right">
-                        <div className="text-lg font-bold text-zinc-100">{ex.currentE1RM}</div>
-                        <div className={`text-xs flex items-center justify-end gap-0.5 ${
-                          ex.weeklyChange > 0 ? 'text-green-500' : 
-                          ex.weeklyChange < 0 ? 'text-red-500' : 'text-zinc-500'
-                        }`}>
-                          {ex.weeklyChange > 0 ? <ArrowUp className="w-3 h-3" /> : 
-                           ex.weeklyChange < 0 ? <ArrowDown className="w-3 h-3" /> : null}
-                          {ex.weeklyChange !== 0 && `${Math.abs(ex.weeklyChange)}%`}
-                        </div>
-                      </div>
+            </Card>
+            
+            {/* Fatigue Index */}
+            <Card className="p-4">
+              <div className="text-xs text-zinc-500 mb-2">УСТАЛОСТЬ</div>
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-lg ${getFatigueBg(analytics?.status?.fatigueIndex || 'ok')}`}>
+                  <Activity className={`w-5 h-5 ${getFatigueColor(analytics?.status?.fatigueIndex || 'ok')}`} />
+                </div>
+                <div>
+                  <div className={`text-lg font-bold ${getFatigueColor(analytics?.status?.fatigueIndex || 'ok')}`}>
+                    {analytics?.status?.fatigueIndex === 'low' ? 'Низкая' : 
+                     analytics?.status?.fatigueIndex === 'high' ? 'Высокая' : 'Норма'}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {analytics?.meta?.hardSets7d} hard sets/7д
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* === БЛОК 2: РЕКОМЕНДАЦИИ === */}
+          {analytics?.recommendations && analytics.recommendations.length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Lightbulb className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold text-zinc-200">Что делать</h3>
+              </div>
+              <div className="space-y-2">
+                {analytics.recommendations.map((rec, i) => (
+                  <div key={i} className={`p-3 rounded-lg border-l-4 ${getPriorityColor(rec.priority)}`}>
+                    <div className="text-sm text-zinc-300">{rec.message}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[10px] uppercase font-medium ${
+                        rec.priority === 'high' ? 'text-red-400' : 
+                        rec.priority === 'medium' ? 'text-yellow-400' : 'text-blue-400'
+                      }`}>
+                        {rec.priority === 'high' ? 'Важно' : rec.priority === 'medium' ? 'Рекомендация' : 'Совет'}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -1180,120 +1224,200 @@ const AnalyticsScreen = ({ onBack }: any) => {
             </Card>
           )}
 
-          {/* Секция 2: Push/Pull/Legs баланс */}
-          {analytics?.balance && (analytics.balance.push > 0 || analytics.balance.pull > 0 || analytics.balance.legs > 0) && (
+          {/* === БЛОК 3: БАЛАНС ПО СТИМУЛУ === */}
+          {analytics?.muscleBalance?.stimulus && Object.keys(analytics.muscleBalance.stimulus).length > 0 && (
             <Card className="p-4">
               <div className="flex items-center gap-2 mb-4">
                 <Target className="w-5 h-5 text-blue-500" />
-                <h3 className="font-semibold text-zinc-200">Баланс нагрузки</h3>
+                <h3 className="font-semibold text-zinc-200">Баланс стимула</h3>
+                <span className="text-[10px] text-zinc-500 ml-auto">по hard sets</span>
               </div>
               
               {/* Stacked bar */}
-              <div className="h-6 rounded-full overflow-hidden flex mb-3">
-                {analytics.balance.push > 0 && (
+              <div className="h-6 rounded-full overflow-hidden flex mb-3 bg-zinc-800">
+                {(analytics.muscleBalance.stimulus.push || 0) > 0 && (
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: `${analytics.balance.push}%` }}
+                    animate={{ width: `${analytics.muscleBalance.stimulus.push}%` }}
                     className="bg-blue-500 h-full"
                   />
                 )}
-                {analytics.balance.pull > 0 && (
+                {(analytics.muscleBalance.stimulus.pull || 0) > 0 && (
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: `${analytics.balance.pull}%` }}
+                    animate={{ width: `${analytics.muscleBalance.stimulus.pull}%` }}
                     transition={{ delay: 0.1 }}
                     className="bg-green-500 h-full"
                   />
                 )}
-                {analytics.balance.legs > 0 && (
+                {(analytics.muscleBalance.stimulus.legs || 0) > 0 && (
                   <motion.div 
                     initial={{ width: 0 }}
-                    animate={{ width: `${analytics.balance.legs}%` }}
+                    animate={{ width: `${analytics.muscleBalance.stimulus.legs}%` }}
                     transition={{ delay: 0.2 }}
                     className="bg-purple-500 h-full"
                   />
                 )}
               </div>
               
-              <div className="flex justify-between text-sm">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded bg-blue-500" />
-                  <span className="text-zinc-400">Push</span>
-                  <span className="font-bold text-zinc-200">{analytics.balance.push}%</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded bg-green-500" />
-                  <span className="text-zinc-400">Pull</span>
-                  <span className="font-bold text-zinc-200">{analytics.balance.pull}%</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded bg-purple-500" />
-                  <span className="text-zinc-400">Legs</span>
-                  <span className="font-bold text-zinc-200">{analytics.balance.legs}%</span>
-                </div>
-              </div>
-              
-              {/* Подсказка про идеальный баланс */}
-              <div className="mt-3 text-xs text-zinc-500">
-                Идеально: ~33% каждая группа
-              </div>
-            </Card>
-          )}
-
-          {/* Секция 3: Частота по мышцам */}
-          {muscleFrequency.length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Activity className="w-5 h-5 text-green-500" />
-                <h3 className="font-semibold text-zinc-200">Частота тренировок</h3>
-              </div>
+              {/* Детали с целевыми диапазонами */}
               <div className="space-y-2">
-                {muscleFrequency.map(muscle => {
-                  const freq = muscle.weeklyFrequency;
-                  const color = freq >= 2 ? 'text-green-500' : freq >= 1 ? 'text-yellow-500' : 'text-red-500';
-                  const bgColor = freq >= 2 ? 'bg-green-500' : freq >= 1 ? 'bg-yellow-500' : 'bg-red-500';
-                  const status = freq >= 2 ? 'Оптимально' : freq >= 1 ? 'Поддержание' : 'Мало';
+                {(['push', 'pull', 'legs'] as const).map(cat => {
+                  const value = analytics.muscleBalance.stimulus[cat] || 0;
+                  const status = analytics.muscleBalance.status[cat];
+                  const range = analytics.muscleBalance.targetRanges[cat];
+                  const color = cat === 'push' ? 'blue' : cat === 'pull' ? 'green' : 'purple';
                   
                   return (
-                    <div key={muscle.name} className="flex items-center justify-between py-1">
-                      <span className="text-sm text-zinc-300">{muscle.name}</span>
+                    <div key={cat} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs ${color}`}>{status}</span>
-                        <div className={`px-2 py-0.5 rounded ${bgColor}/20`}>
-                          <span className={`text-sm font-bold ${color}`}>{freq}×</span>
-                          <span className="text-xs text-zinc-500">/нед</span>
-                        </div>
+                        <div className={`w-3 h-3 rounded bg-${color}-500`} />
+                        <span className="text-zinc-400 capitalize">{cat}</span>
+                        {getBalanceStatusIcon(status)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-zinc-200">{value}%</span>
+                        {range && (
+                          <span className="text-[10px] text-zinc-500">
+                            цель: {range[0]}-{range[1]}%
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div className="mt-3 text-xs text-zinc-500">
-                Для роста: 2×/нед • Поддержание: 1×/нед
+            </Card>
+          )}
+
+          {/* === БЛОК 4: СИММЕТРИЯ АНТАГОНИСТОВ === */}
+          {analytics?.muscleBalance?.symmetry && analytics.muscleBalance.symmetry.length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Scale className="w-5 h-5 text-purple-500" />
+                <h3 className="font-semibold text-zinc-200">Симметрия</h3>
+              </div>
+              <div className="space-y-2">
+                {analytics.muscleBalance.symmetry.map((sym, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm py-1">
+                    <span className="text-zinc-400">{sym.pair}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono ${sym.isBalanced ? 'text-green-500' : 'text-yellow-500'}`}>
+                        {typeof sym.ratio === 'number' ? sym.ratio.toFixed(1) : sym.ratio}
+                      </span>
+                      {sym.isBalanced ? (
+                        <Check className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-[10px] text-zinc-500">
+                Норма: 0.6 — 1.6
               </div>
             </Card>
           )}
 
-          {/* Мотивация */}
-          <Card className="p-4 bg-gradient-to-br from-blue-500/10 to-purple-500/10 border-blue-500/20">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                <Trophy className="w-6 h-6 text-blue-400" />
+          {/* === БЛОК 5: ПЛАТО ПО ПАТТЕРНАМ === */}
+          {analytics?.patterns && Object.keys(analytics.patterns).length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="w-5 h-5 text-orange-500" />
+                <h3 className="font-semibold text-zinc-200">Тренды по паттернам</h3>
               </div>
-              <div>
-                <div className="font-semibold text-zinc-200">
-                  {topExercises.length > 0 && topExercises[0].weeklyChange > 0 
-                    ? 'Сила растёт!' 
-                    : 'Продолжай тренироваться!'}
-                </div>
-                <div className="text-sm text-zinc-400">
-                  {topExercises.length > 0 
-                    ? `Лучший e1RM: ${topExercises[0].name} — ${topExercises[0].currentE1RM} кг`
-                    : 'Данные появятся после нескольких тренировок'}
-                </div>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(analytics.patterns).map(([cat, data]) => (
+                  <div key={cat} className={`p-3 rounded-lg text-center ${data.isPlateau ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-zinc-800/50'}`}>
+                    <div className="text-xs text-zinc-500 uppercase mb-1">{cat}</div>
+                    <div className={`text-lg font-bold ${
+                      data.avgTrend > 0 ? 'text-green-500' : 
+                      data.avgTrend < 0 ? 'text-red-500' : 'text-zinc-400'
+                    }`}>
+                      {data.avgTrend > 0 ? '+' : ''}{data.avgTrend}%
+                    </div>
+                    {data.isPlateau && (
+                      <div className="text-[10px] text-yellow-500 mt-1">ПЛАТО</div>
+                    )}
+                  </div>
+                ))}
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
+
+          {/* === БЛОК 6: НЕЭФФЕКТИВНЫЕ УПРАЖНЕНИЯ === */}
+          {analytics?.inefficiencies && analytics.inefficiencies.length > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <h3 className="font-semibold text-zinc-200">Низкая отдача</h3>
+              </div>
+              <div className="space-y-2">
+                {analytics.inefficiencies.map((ex, i) => (
+                  <div key={i} className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-zinc-200">{ex.name}</div>
+                        <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-sm font-bold ${ex.e1rmTrend >= 0 ? 'text-zinc-400' : 'text-red-500'}`}>
+                          {ex.e1rmTrend > 0 ? '+' : ''}{ex.e1rmTrend}%
+                        </div>
+                        <div className="text-[10px] text-zinc-500">
+                          {Math.round(ex.volume21d / 1000)}k объём
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-[10px] text-zinc-500">
+                Много объёма, мало прогресса — замени или снизь частоту
+              </div>
+            </Card>
+          )}
+
+          {/* === ДЕТАЛИ (скрыто по умолчанию) === */}
+          <button 
+            onClick={() => setShowDetails(!showDetails)}
+            className="w-full p-3 text-sm text-zinc-500 hover:text-zinc-300 flex items-center justify-center gap-2"
+          >
+            {showDetails ? 'Скрыть детали' : 'Показать детали'}
+            <ChevronDown className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showDetails && analytics?.exerciseStats && (
+            <Card className="p-4">
+              <h3 className="font-semibold text-zinc-200 mb-3">Все упражнения</h3>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {Object.entries(analytics.exerciseStats)
+                  .sort((a, b) => (b[1].currentE1RM || 0) - (a[1].currentE1RM || 0))
+                  .map(([id, ex]: [string, any]) => (
+                    <div key={id} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-zinc-200 truncate">{ex.name}</div>
+                        <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
+                      </div>
+                      <div className="text-right ml-2">
+                        <div className="text-sm font-bold text-zinc-100">{ex.currentE1RM} кг</div>
+                        <div className={`text-xs ${ex.e1rmTrend > 0 ? 'text-green-500' : ex.e1rmTrend < 0 ? 'text-red-500' : 'text-zinc-500'}`}>
+                          {ex.e1rmTrend > 0 ? '+' : ''}{ex.e1rmTrend}%
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Мета-инфо */}
+          <div className="text-center text-xs text-zinc-600 py-4">
+            {analytics?.meta?.totalSets} подходов • 
+            {analytics?.meta?.hardSets7d} hard sets за 7 дней • 
+            {Math.round((analytics?.meta?.avgIntensity7d || 0) * 100)}% средняя интенсивность
+          </div>
         </div>
       ) : (
         <div className="p-4 text-center text-zinc-500 mt-20">

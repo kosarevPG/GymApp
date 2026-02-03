@@ -587,38 +587,53 @@ class GoogleSheetsManager:
 
     def get_analytics_data(self) -> Dict:
         """
-        Возвращает продвинутую аналитику:
-        - exerciseStats: e1RM, динамика силы, плато по упражнениям
-        - muscleGroupStats: частота, объём по группам мышц
-        - balance: Push/Pull/Legs баланс
-        - alerts: предупреждения
+        Продвинутая аналитика v2.0
+        
+        Принцип: не добавляем метрики, меняем интерпретацию.
+        Каждая метрика должна вести к действию.
+        
+        Возвращает:
+        - status: progressIndex, fatigueIndex (главные индикаторы)
+        - inefficiencies: упражнения с низкой эффективностью
+        - recommendations: конкретные действия
+        - muscleBalance: симметрия и стимул по группам
+        - patterns: тренды по паттернам (жимы/тяги/ноги)
         """
+        from datetime import datetime, timedelta
+        
         try:
             all_values = self.log_sheet.get_all_values()
             if not all_values or len(all_values) < 2:
-                return {"exerciseStats": {}, "muscleGroupStats": {}, "balance": {}, "alerts": []}
+                return self._empty_analytics()
             
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            # Маппинг групп мышц на категории
+            # Категории мышц
             MUSCLE_CATEGORY = {
                 'Грудь': 'push', 'Плечи': 'push', 'Трицепс': 'push',
                 'Спина': 'pull', 'Бицепс': 'pull',
-                'Ноги': 'legs', 'Пресс': 'core', 'Кардио': 'cardio'
+                'Ноги': 'legs', 'Квадрицепс': 'legs', 'Бицепс бедра': 'legs',
+                'Пресс': 'core', 'Кардио': 'cardio'
             }
+            
+            # Антагонисты для симметрии
+            ANTAGONISTS = [
+                ('push', 'pull'),
+                ('Квадрицепс', 'Бицепс бедра'),
+                ('Грудь', 'Спина'),
+                ('Бицепс', 'Трицепс')
+            ]
             
             data_rows = all_values[1:]
             ex_id_idx, date_idx, weight_idx, reps_idx = 1, 0, 3, 4
             
-            logger.info(f"Analytics: found {len(data_rows)} rows, {len(exercises_map)} exercises")
+            logger.info(f"Analytics v2: {len(data_rows)} rows, {len(exercises_map)} exercises")
             
-            # Собираем данные по упражнениям
-            exercise_data = {}  # exercise_id -> {name, muscleGroup, sessions: [{date, weight, reps, e1rm, volume}]}
-            muscle_dates = {}   # muscleGroup -> set of dates
+            # ========== ШАГ 1: Сбор сырых данных ==========
+            all_sets = []  # Все подходы с производными полями
             
             for row in data_rows:
-                # Минимум: date (0), ex_id (1), name (2), weight (3), reps (4)
                 if len(row) < 5:
                     continue
                 
@@ -626,10 +641,25 @@ class GoogleSheetsManager:
                 if not date_str:
                     continue
                 
+                # Парсим дату
+                try:
+                    # Пробуем разные форматы
+                    for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y']:
+                        try:
+                            date_obj = datetime.strptime(date_str, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        continue
+                except Exception:
+                    continue
+                
                 ex_id = str(row[ex_id_idx]).strip()
                 ex_info = exercises_map.get(ex_id, {})
                 ex_name = ex_info.get('name', 'Unknown')
                 muscle_group = ex_info.get('muscleGroup', 'Other')
+                category = MUSCLE_CATEGORY.get(muscle_group, 'other')
                 
                 weight = DataParser.to_float(row[weight_idx])
                 reps = DataParser.to_int(row[reps_idx])
@@ -637,167 +667,343 @@ class GoogleSheetsManager:
                 if weight <= 0 or reps <= 0:
                     continue
                 
-                # e1RM по формуле Epley
-                e1rm = round(weight * (1 + reps / 30), 1)
+                # Производные поля
+                e1rm = round(weight * (1 + reps / 30), 1)  # Epley
                 volume = weight * reps
                 
-                if ex_id not in exercise_data:
-                    exercise_data[ex_id] = {
-                        "name": ex_name,
-                        "muscleGroup": muscle_group,
-                        "sessions": []
-                    }
-                
-                exercise_data[ex_id]["sessions"].append({
-                    "date": date_str,
-                    "weight": weight,
-                    "reps": reps,
-                    "e1rm": e1rm,
-                    "volume": volume
+                all_sets.append({
+                    'date': date_obj,
+                    'date_str': date_str,
+                    'ex_id': ex_id,
+                    'ex_name': ex_name,
+                    'muscle_group': muscle_group,
+                    'category': category,
+                    'weight': weight,
+                    'reps': reps,
+                    'e1rm': e1rm,
+                    'volume': volume
                 })
-                
-                # Трекаем даты для частоты
-                if muscle_group not in muscle_dates:
-                    muscle_dates[muscle_group] = set()
-                muscle_dates[muscle_group].add(date_str)
             
-            # Обрабатываем статистику по упражнениям
+            if not all_sets:
+                return self._empty_analytics()
+            
+            # ========== ШАГ 2: Вычисляем best e1RM и intensity ==========
+            # Для каждого упражнения находим лучший e1RM (для расчёта intensity)
+            best_e1rm_by_ex = {}
+            for s in all_sets:
+                ex_id = s['ex_id']
+                if ex_id not in best_e1rm_by_ex or s['e1rm'] > best_e1rm_by_ex[ex_id]:
+                    best_e1rm_by_ex[ex_id] = s['e1rm']
+            
+            # Добавляем intensity и is_hard_set
+            for s in all_sets:
+                best = best_e1rm_by_ex.get(s['ex_id'], s['e1rm'])
+                s['intensity'] = round(s['weight'] / best, 2) if best > 0 else 0
+                # Hard set: >= 6 reps при intensity >= 0.7 (прокси для ~2 RIR)
+                s['is_hard_set'] = s['reps'] >= 6 and s['intensity'] >= 0.7
+            
+            # ========== ШАГ 3: Скользящие окна ==========
+            today = datetime.now()
+            window_7d = today - timedelta(days=7)
+            window_14d = today - timedelta(days=14)
+            window_21d = today - timedelta(days=21)
+            
+            sets_7d = [s for s in all_sets if s['date'] >= window_7d]
+            sets_14d = [s for s in all_sets if s['date'] >= window_14d]
+            sets_21d = [s for s in all_sets if s['date'] >= window_21d]
+            sets_older = [s for s in all_sets if s['date'] < window_21d]
+            
+            # ========== ШАГ 4: Агрегаты по упражнениям ==========
             exercise_stats = {}
-            for ex_id, data in exercise_data.items():
-                sessions = data["sessions"]
-                if not sessions:
+            
+            # Группируем по упражнениям
+            ex_sets = {}
+            for s in all_sets:
+                ex_id = s['ex_id']
+                if ex_id not in ex_sets:
+                    ex_sets[ex_id] = []
+                ex_sets[ex_id].append(s)
+            
+            for ex_id, sets in ex_sets.items():
+                if not sets:
                     continue
                 
-                # Группируем по датам (берём макс e1RM за день)
-                daily_e1rm = {}
-                daily_volume = {}
-                for s in sessions:
-                    d = s["date"]
-                    if d not in daily_e1rm or s["e1rm"] > daily_e1rm[d]:
-                        daily_e1rm[d] = s["e1rm"]
-                    daily_volume[d] = daily_volume.get(d, 0) + s["volume"]
+                ex_name = sets[0]['ex_name']
+                muscle_group = sets[0]['muscle_group']
                 
-                # Сортируем по дате
-                sorted_dates = sorted(daily_e1rm.keys())
-                history = [{"date": d, "e1rm": daily_e1rm[d], "volume": daily_volume.get(d, 0)} for d in sorted_dates]
+                # Группируем по датам
+                daily_data = {}
+                for s in sets:
+                    d = s['date_str']
+                    if d not in daily_data:
+                        daily_data[d] = {'e1rm': 0, 'volume': 0, 'hard_sets': 0, 'intensity_sum': 0, 'count': 0}
+                    if s['e1rm'] > daily_data[d]['e1rm']:
+                        daily_data[d]['e1rm'] = s['e1rm']
+                    daily_data[d]['volume'] += s['volume']
+                    daily_data[d]['hard_sets'] += 1 if s['is_hard_set'] else 0
+                    daily_data[d]['intensity_sum'] += s['intensity']
+                    daily_data[d]['count'] += 1
                 
-                current_e1rm = history[-1]["e1rm"] if history else 0
-                best_e1rm = max(daily_e1rm.values()) if daily_e1rm else 0
+                sorted_dates = sorted(daily_data.keys())
+                history = []
+                for d in sorted_dates:
+                    dd = daily_data[d]
+                    history.append({
+                        'date': d,
+                        'e1rm': dd['e1rm'],
+                        'volume': dd['volume'],
+                        'hard_sets': dd['hard_sets'],
+                        'avg_intensity': round(dd['intensity_sum'] / dd['count'], 2) if dd['count'] > 0 else 0
+                    })
                 
-                # Изменение за неделю (последние 7 дней vs предыдущие 7)
-                weekly_change = 0
-                if len(history) >= 2:
-                    recent = [h["e1rm"] for h in history[-3:]]  # последние записи
-                    older = [h["e1rm"] for h in history[:-3][-3:]] if len(history) > 3 else []
-                    if recent and older:
-                        avg_recent = sum(recent) / len(recent)
-                        avg_older = sum(older) / len(older)
-                        if avg_older > 0:
-                            weekly_change = round((avg_recent - avg_older) / avg_older * 100, 1)
+                # Метрики за окна
+                sets_14d_ex = [s for s in sets if s['date'] >= window_14d]
+                sets_21d_ex = [s for s in sets if s['date'] >= window_21d]
+                sets_older_ex = [s for s in sets if s['date'] < window_14d]
                 
-                # Определяем плато (e1RM не вырос > 2% за последние 4 записи)
-                plateau_weeks = 0
-                if len(history) >= 4:
-                    last_4 = [h["e1rm"] for h in history[-4:]]
-                    max_last_4 = max(last_4)
-                    min_last_4 = min(last_4)
-                    if max_last_4 > 0 and (max_last_4 - min_last_4) / max_last_4 < 0.02:
-                        plateau_weeks = 4
+                # e1RM тренд (14 дней)
+                e1rm_recent = max([s['e1rm'] for s in sets_14d_ex]) if sets_14d_ex else 0
+                e1rm_older = max([s['e1rm'] for s in sets_older_ex]) if sets_older_ex else e1rm_recent
+                e1rm_delta = round((e1rm_recent - e1rm_older) / e1rm_older * 100, 1) if e1rm_older > 0 else 0
+                
+                # Volume за 21 день
+                volume_21d = sum(s['volume'] for s in sets_21d_ex)
+                
+                # Training Efficiency = Δ e1RM / volume (higher = better)
+                efficiency = round(e1rm_delta / (volume_21d / 1000 + 0.1), 2) if volume_21d > 0 else 0
                 
                 exercise_stats[ex_id] = {
-                    "name": data["name"],
-                    "muscleGroup": data["muscleGroup"],
-                    "history": history[-10:],  # последние 10 записей
-                    "currentE1RM": current_e1rm,
-                    "bestE1RM": best_e1rm,
-                    "weeklyChange": weekly_change,
-                    "plateauWeeks": plateau_weeks
+                    'name': ex_name,
+                    'muscleGroup': muscle_group,
+                    'history': history[-10:],
+                    'currentE1RM': history[-1]['e1rm'] if history else 0,
+                    'bestE1RM': best_e1rm_by_ex.get(ex_id, 0),
+                    'e1rmTrend': e1rm_delta,  # % изменения за 14 дней
+                    'volume21d': round(volume_21d),
+                    'efficiency': efficiency,  # прогресс на единицу объёма
+                    'hardSets21d': sum(1 for s in sets_21d_ex if s['is_hard_set'])
                 }
             
-            # Статистика по группам мышц
-            muscle_group_stats = {}
-            total_volume_all = 0
-            category_volume = {"push": 0, "pull": 0, "legs": 0, "core": 0, "cardio": 0}
+            # ========== ШАГ 5: Fatigue Index ==========
+            # Fatigue = (hard_sets_7d × avg_intensity) / (Δ e1RM_14d + ε)
+            hard_sets_7d = sum(1 for s in sets_7d if s['is_hard_set'])
+            avg_intensity_7d = sum(s['intensity'] for s in sets_7d) / len(sets_7d) if sets_7d else 0
             
-            # Считаем количество уникальных недель для частоты
-            all_dates = set()
-            for dates in muscle_dates.values():
-                all_dates.update(dates)
-            total_weeks = max(1, len(all_dates) / 7)  # приблизительно
+            # Средний e1RM delta по всем упражнениям
+            e1rm_deltas = [stats['e1rmTrend'] for stats in exercise_stats.values() if stats['e1rmTrend'] != 0]
+            avg_e1rm_delta = sum(e1rm_deltas) / len(e1rm_deltas) if e1rm_deltas else 0
             
-            for muscle, dates in muscle_dates.items():
-                frequency = round(len(dates) / total_weeks, 1)
-                
-                # Считаем объём для этой мышцы
-                muscle_volume = 0
-                for ex_id, data in exercise_data.items():
-                    if data["muscleGroup"] == muscle:
-                        muscle_volume += sum(s["volume"] for s in data["sessions"])
-                
-                category = MUSCLE_CATEGORY.get(muscle, "other")
-                if category in category_volume:
-                    category_volume[category] += muscle_volume
-                total_volume_all += muscle_volume
-                
-                muscle_group_stats[muscle] = {
-                    "weeklyFrequency": frequency,
-                    "totalVolume": round(muscle_volume),
-                    "category": category
+            fatigue_raw = (hard_sets_7d * avg_intensity_7d) / (abs(avg_e1rm_delta) + 1)
+            
+            # Нормализуем в шкалу 0-100
+            # Эмпирически: fatigue_raw ~5-10 = норма, >15 = высокая, <3 = низкая
+            if fatigue_raw < 3:
+                fatigue_index = 'low'
+                fatigue_value = round(fatigue_raw / 3 * 30)
+            elif fatigue_raw < 10:
+                fatigue_index = 'ok'
+                fatigue_value = round(30 + (fatigue_raw - 3) / 7 * 40)
+            else:
+                fatigue_index = 'high'
+                fatigue_value = min(100, round(70 + (fatigue_raw - 10) / 10 * 30))
+            
+            # ========== ШАГ 6: Progress Index ==========
+            # Основан на среднем e1RM тренде по паттернам
+            if avg_e1rm_delta > 2:
+                progress_index = 'up'
+            elif avg_e1rm_delta < -2:
+                progress_index = 'down'
+            else:
+                progress_index = 'stable'
+            
+            progress_value = round(50 + avg_e1rm_delta * 5)  # Центрировано на 50
+            progress_value = max(0, min(100, progress_value))
+            
+            # ========== ШАГ 7: Детектор плато (по паттернам) ==========
+            patterns_plateau = {}
+            for category in ['push', 'pull', 'legs']:
+                cat_stats = [s for s in exercise_stats.values() if MUSCLE_CATEGORY.get(s['muscleGroup']) == category]
+                if len(cat_stats) >= 2:
+                    avg_trend = sum(s['e1rmTrend'] for s in cat_stats) / len(cat_stats)
+                    avg_volume = sum(s['volume21d'] for s in cat_stats) / len(cat_stats)
+                    # Плато: тренд ~0, но объём не падает
+                    is_plateau = abs(avg_trend) < 1 and avg_volume > 0
+                    patterns_plateau[category] = {
+                        'avgTrend': round(avg_trend, 1),
+                        'isPlateau': is_plateau
+                    }
+            
+            # ========== ШАГ 8: Баланс по стимулу (hard sets) ==========
+            category_hard_sets = {'push': 0, 'pull': 0, 'legs': 0, 'core': 0}
+            total_hard_sets = 0
+            
+            for s in sets_21d:
+                if s['is_hard_set']:
+                    cat = s['category']
+                    if cat in category_hard_sets:
+                        category_hard_sets[cat] += 1
+                    total_hard_sets += 1
+            
+            stimulus_balance = {}
+            if total_hard_sets > 0:
+                stimulus_balance = {
+                    cat: round(count / total_hard_sets * 100)
+                    for cat, count in category_hard_sets.items()
+                    if cat in ['push', 'pull', 'legs']
                 }
             
-            # Push/Pull/Legs баланс
-            balance = {}
-            if total_volume_all > 0:
-                balance = {
-                    "push": round(category_volume["push"] / total_volume_all * 100),
-                    "pull": round(category_volume["pull"] / total_volume_all * 100),
-                    "legs": round(category_volume["legs"] / total_volume_all * 100)
-                }
+            # Целевые диапазоны (не фиксированные проценты!)
+            TARGET_RANGES = {
+                'push': (25, 35),
+                'pull': (30, 45),
+                'legs': (25, 40)
+            }
             
-            # Генерируем алерты
-            alerts = []
+            balance_status = {}
+            for cat, (low, high) in TARGET_RANGES.items():
+                val = stimulus_balance.get(cat, 0)
+                if val < low:
+                    balance_status[cat] = 'low'
+                elif val > high:
+                    balance_status[cat] = 'high'
+                else:
+                    balance_status[cat] = 'ok'
             
-            # Алерт на плато
+            # ========== ШАГ 9: Симметрия антагонистов ==========
+            symmetry = []
+            for a, b in ANTAGONISTS:
+                # Могут быть категории или группы мышц
+                if a in category_hard_sets and b in category_hard_sets:
+                    sets_a = category_hard_sets[a]
+                    sets_b = category_hard_sets[b]
+                else:
+                    # Группы мышц
+                    sets_a = sum(1 for s in sets_21d if s['is_hard_set'] and s['muscle_group'] == a)
+                    sets_b = sum(1 for s in sets_21d if s['is_hard_set'] and s['muscle_group'] == b)
+                
+                if sets_a > 0 or sets_b > 0:
+                    ratio = round(sets_a / sets_b, 2) if sets_b > 0 else float('inf')
+                    is_balanced = 0.6 <= ratio <= 1.6 if ratio != float('inf') else False
+                    symmetry.append({
+                        'pair': f"{a}/{b}",
+                        'ratio': ratio if ratio != float('inf') else 'n/a',
+                        'isBalanced': is_balanced
+                    })
+            
+            # ========== ШАГ 10: Неэффективные упражнения ==========
+            # Топ-3 с низкой эффективностью и высокой усталостью
+            inefficiencies = []
             for ex_id, stats in exercise_stats.items():
-                if stats["plateauWeeks"] >= 3:
-                    alerts.append({
-                        "type": "plateau",
-                        "exercise": stats["name"],
-                        "weeks": stats["plateauWeeks"]
-                    })
-                # Алерт на падение силы
-                if stats["weeklyChange"] < -5:
-                    alerts.append({
-                        "type": "strength_drop",
-                        "exercise": stats["name"],
-                        "change": stats["weeklyChange"]
+                # Низкая эффективность: много объёма, мало прогресса
+                if stats['volume21d'] > 0 and stats['efficiency'] < 1 and stats['e1rmTrend'] <= 0:
+                    inefficiencies.append({
+                        'exerciseId': ex_id,
+                        'name': stats['name'],
+                        'muscleGroup': stats['muscleGroup'],
+                        'efficiency': stats['efficiency'],
+                        'e1rmTrend': stats['e1rmTrend'],
+                        'volume21d': stats['volume21d'],
+                        'reason': 'high_volume_no_progress'
                     })
             
-            # Алерт на дисбаланс Push/Pull
-            if balance.get("push", 0) and balance.get("pull", 0):
-                diff = abs(balance["push"] - balance["pull"])
-                if diff > 15:
-                    alerts.append({
-                        "type": "imbalance",
-                        "message": f"Push/Pull дисбаланс: {balance['push']}% / {balance['pull']}%"
+            # Сортируем по эффективности (худшие первые)
+            inefficiencies.sort(key=lambda x: x['efficiency'])
+            inefficiencies = inefficiencies[:3]
+            
+            # ========== ШАГ 11: Рекомендации ==========
+            recommendations = []
+            
+            # Рекомендация при высокой усталости
+            if fatigue_index == 'high':
+                recommendations.append({
+                    'type': 'reduce_volume',
+                    'priority': 'high',
+                    'message': 'Снизь объём на 20-30% — усталость накапливается быстрее, чем адаптация',
+                    'action': 'deload'
+                })
+            
+            # Рекомендация при низкой усталости и стабильном прогрессе
+            if fatigue_index == 'low' and progress_index == 'stable':
+                recommendations.append({
+                    'type': 'increase_intensity',
+                    'priority': 'medium',
+                    'message': 'Можно увеличить интенсивность — есть запас восстановления',
+                    'action': 'progress'
+                })
+            
+            # Рекомендация при плато
+            for cat, data in patterns_plateau.items():
+                if data['isPlateau']:
+                    recommendations.append({
+                        'type': 'plateau',
+                        'priority': 'high',
+                        'message': f'Плато в паттерне {cat}: попробуй сменить диапазон повторений или вариации упражнений',
+                        'action': 'variation'
                     })
             
-            # Алерт на низкую частоту
-            for muscle, stats in muscle_group_stats.items():
-                if stats["weeklyFrequency"] < 1 and stats["totalVolume"] > 0:
-                    alerts.append({
-                        "type": "low_frequency",
-                        "muscle": muscle,
-                        "frequency": stats["weeklyFrequency"]
+            # Рекомендация по дисбалансу
+            for cat, status in balance_status.items():
+                if status == 'low':
+                    recommendations.append({
+                        'type': 'balance',
+                        'priority': 'medium',
+                        'message': f'Недостаточно стимула для {cat} — добавь 2-3 hard sets в неделю',
+                        'action': 'add_volume'
                     })
             
+            # Рекомендация по неэффективным упражнениям
+            for ineff in inefficiencies:
+                recommendations.append({
+                    'type': 'inefficiency',
+                    'priority': 'low',
+                    'message': f'{ineff["name"]}: много объёма без прогресса — замени или снизь объём',
+                    'action': 'replace_exercise'
+                })
+            
+            # Сортируем по приоритету
+            priority_order = {'high': 0, 'medium': 1, 'low': 2}
+            recommendations.sort(key=lambda x: priority_order.get(x['priority'], 3))
+            recommendations = recommendations[:5]  # Максимум 5 рекомендаций
+            
+            # ========== РЕЗУЛЬТАТ ==========
             return {
-                "exerciseStats": exercise_stats,
-                "muscleGroupStats": muscle_group_stats,
-                "balance": balance,
-                "alerts": alerts
+                'status': {
+                    'progressIndex': progress_index,
+                    'progressValue': progress_value,
+                    'fatigueIndex': fatigue_index,
+                    'fatigueValue': fatigue_value,
+                    'avgE1rmTrend': round(avg_e1rm_delta, 1)
+                },
+                'muscleBalance': {
+                    'stimulus': stimulus_balance,
+                    'status': balance_status,
+                    'targetRanges': TARGET_RANGES,
+                    'symmetry': symmetry
+                },
+                'patterns': patterns_plateau,
+                'inefficiencies': inefficiencies,
+                'recommendations': recommendations,
+                'exerciseStats': exercise_stats,  # Для детальных графиков
+                'meta': {
+                    'totalSets': len(all_sets),
+                    'hardSets7d': hard_sets_7d,
+                    'avgIntensity7d': round(avg_intensity_7d, 2),
+                    'daysAnalyzed': (today - min(s['date'] for s in all_sets)).days if all_sets else 0
+                }
             }
             
         except Exception as e:
-            logger.error(f"Analytics data error: {e}", exc_info=True)
-            return {"exerciseStats": {}, "muscleGroupStats": {}, "balance": {}, "alerts": []}
+            logger.error(f"Analytics v2 error: {e}", exc_info=True)
+            return self._empty_analytics()
+    
+    def _empty_analytics(self) -> Dict:
+        """Пустой результат аналитики"""
+        return {
+            'status': {'progressIndex': 'stable', 'progressValue': 50, 'fatigueIndex': 'ok', 'fatigueValue': 50, 'avgE1rmTrend': 0},
+            'muscleBalance': {'stimulus': {}, 'status': {}, 'targetRanges': {}, 'symmetry': []},
+            'patterns': {},
+            'inefficiencies': [],
+            'recommendations': [],
+            'exerciseStats': {},
+            'meta': {'totalSets': 0, 'hardSets7d': 0, 'avgIntensity7d': 0, 'daysAnalyzed': 0}
+        }
