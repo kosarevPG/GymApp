@@ -653,6 +653,50 @@ class GoogleSheetsManager:
             logger.error(f"Global history error: {e}")
             return []
 
+    def _resolve_log_columns(self, headers: List) -> Dict[str, int]:
+        """Определяет индексы колонок LOG по заголовкам (как в get_exercise_history)"""
+        date_idx = ex_id_idx = weight_idx = reps_idx = rest_idx = rir_idx = -1
+        for i, header in enumerate(headers):
+            h = str(header).lower().strip().replace(' ', '_').replace('-', '_')
+            if (date_idx < 0) and ('date' in h or 'дата' in h): date_idx = i
+            elif (ex_id_idx < 0) and (('exercise' in h and 'id' in h) or 'ex_id' in h): ex_id_idx = i
+            elif (weight_idx < 0) and ('weight' in h or 'вес' in h or 'кг' in h): weight_idx = i
+            elif (reps_idx < 0) and ('reps' in h or 'repetitions' in h or 'повтор' in h): reps_idx = i
+            elif (rest_idx < 0) and ('rest' in h or 'отдых' in h): rest_idx = i
+            elif 'rir' in h: rir_idx = i
+        if date_idx < 0: date_idx = 0
+        if ex_id_idx < 0: ex_id_idx = 1
+        if weight_idx < 0: weight_idx = 3
+        if reps_idx < 0: reps_idx = 4
+        if rest_idx < 0: rest_idx = 5
+        return {'date': date_idx, 'ex_id': ex_id_idx, 'weight': weight_idx, 'reps': reps_idx, 'rest': rest_idx, 'rir': rir_idx}
+    
+    def _parse_date_flexible(self, raw) -> tuple:
+        """Парсинг даты: строки, Google Sheets serial, разные форматы"""
+        if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+            return None, ''
+        s = str(raw).strip()
+        # Google Sheets date serial (число)
+        try:
+            serial = float(s.replace(',', '.'))
+            if 1000 < serial < 100000:  # разумный диапазон дат
+                from datetime import datetime, timedelta
+                base = datetime(1899, 12, 30)
+                dt = base + timedelta(days=int(serial))
+                return dt, dt.strftime('%Y.%m.%d')
+        except (ValueError, TypeError):
+            pass
+        s = s.split(',')[0].strip()
+        if not s:
+            return None, ''
+        for fmt in ['%Y.%m.%d', '%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y', '%d.%m.%y', '%m/%d/%Y']:
+            try:
+                dt = datetime.strptime(s, fmt)
+                return dt, dt.strftime('%Y.%m.%d')
+            except ValueError:
+                continue
+        return None, s
+    
     def get_analytics_v4(self, period: int = 14) -> Dict:
         """
         Аналитика v4.0 — Регулярность > Прогресс.
@@ -665,40 +709,34 @@ class GoogleSheetsManager:
         try:
             all_values = self.log_sheet.get_all_values()
             if not all_values or len(all_values) < 2:
-                return self._empty_analytics_v4()
+                return self._empty_analytics_v4(period)
             
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            # Парсинг LOG
-            def parse_date(date_str_raw: str):
-                date_str = str(date_str_raw).split(',')[0].strip()
-                if not date_str:
-                    return None, ''
-                for fmt in ['%Y.%m.%d', '%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y']:
-                    try:
-                        return datetime.strptime(date_str, fmt), date_str
-                    except ValueError:
-                        continue
-                return None, date_str
+            headers = all_values[0]
+            cols = self._resolve_log_columns(headers)
+            date_idx = cols['date']
+            ex_id_idx = cols['ex_id']
+            weight_idx = cols['weight']
+            reps_idx = cols['reps']
+            rest_idx = cols['rest']
+            rir_idx = cols['rir'] if cols['rir'] >= 0 and len(headers) > cols['rir'] else -1
             
             data_rows = all_values[1:]
-            date_idx, ex_id_idx, weight_idx, reps_idx, rest_idx = 0, 1, 3, 4, 5
-            rir_idx = 9 if len(all_values[0]) > 9 else -1
-            
             all_sets = []
             for row in data_rows:
-                if len(row) < 6:
+                if len(row) <= max(date_idx, ex_id_idx, weight_idx, reps_idx):
                     continue
-                date_obj, date_str = parse_date(row[date_idx])
+                date_obj, date_str = self._parse_date_flexible(row[date_idx] if date_idx < len(row) else '')
                 if not date_str:
                     continue
-                weight = DataParser.to_float(row[weight_idx])
-                reps = DataParser.to_int(row[reps_idx])
+                weight = DataParser.to_float(row[weight_idx] if weight_idx < len(row) else 0)
+                reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else 0)
                 if weight <= 0 or reps <= 0:
                     continue
                 rir = DataParser.to_int(row[rir_idx]) if rir_idx >= 0 and rir_idx < len(row) and row[rir_idx] else None
-                ex_id = str(row[ex_id_idx]).strip()
+                ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
                 ex_info = exercises_map.get(ex_id, {})
                 
                 all_sets.append({
@@ -713,12 +751,12 @@ class GoogleSheetsManager:
                 })
             
             if not all_sets:
-                return self._empty_analytics_v4()
+                return self._empty_analytics_v4(period)
             
             today = datetime.now()
             has_dates = any(s['date'] for s in all_sets)
             if not has_dates:
-                return self._empty_analytics_v4()
+                return self._empty_analytics_v4(period)
             
             window = today - timedelta(days=period)
             sets_in_period = [s for s in all_sets if s['date'] and s['date'] >= window]
@@ -815,7 +853,7 @@ class GoogleSheetsManager:
             
         except Exception as e:
             logger.error(f"Analytics v4 error: {e}", exc_info=True)
-            return self._empty_analytics_v4()
+            return self._empty_analytics_v4(period)
     
     def _get_baselines_map(self) -> Dict:
         """Читает сохранённые baseline из листа"""
@@ -935,14 +973,15 @@ class GoogleSheetsManager:
             logger.error(f"confirm_baseline_proposal error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
     
-    def _empty_analytics_v4(self) -> Dict:
+    def _empty_analytics_v4(self, period: int = 14) -> Dict:
+        target = max(1, int(period / 7 * 3))
         return {
             'mode': 'Поддержание',
-            'frequencyScore': {'value': 0, 'status': 'red', 'actual': 0, 'target': 3},
-            'maxGap': {'value': 0, 'status': 'ok', 'interpretation': ''},
+            'frequencyScore': {'value': 0, 'status': 'red', 'actual': 0, 'target': target},
+            'maxGap': {'value': 0, 'status': 'ok', 'interpretation': 'Нет данных'},
             'returnToBaseline': None,
             'stabilityGate': False,
             'baselines': [],
             'proposals': [],
-            'meta': {'period': 14}
+            'meta': {'period': period}
         }

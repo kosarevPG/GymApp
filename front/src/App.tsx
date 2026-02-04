@@ -3,7 +3,7 @@ import {
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
-  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3
+  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -1068,22 +1068,30 @@ const AnalyticsScreen = ({ onBack }: any) => {
   const [analytics, setAnalytics] = useState<AnalyticsDataV4 | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(14);
+  const [apiError, setApiError] = useState<string | null>(null);
   
-  useEffect(() => {
+  const fetchAnalytics = () => {
     setLoading(true);
-    api.getAnalytics(period).then((data: AnalyticsDataV4) => {
-      setAnalytics(data);
+    setApiError(null);
+    api.getAnalytics(period).then((data: AnalyticsDataV4 | { error?: string } | null) => {
+      if (!data) {
+        setAnalytics(null);
+        setApiError('Не удалось загрузить данные');
+      } else if ('error' in data) {
+        setAnalytics(null);
+        setApiError(data.error || 'Ошибка API');
+      } else {
+        setAnalytics(data as AnalyticsDataV4);
+      }
       setLoading(false);
     });
-  }, [period]);
+  };
+  
+  useEffect(() => { fetchAnalytics(); }, [period]);
 
   const handleProposalAction = async (proposalId: string, action: 'CONFIRM' | 'SNOOZE' | 'DECLINE') => {
     await api.confirmBaseline(proposalId, action);
-    setLoading(true);
-    api.getAnalytics(period).then((data: AnalyticsDataV4) => {
-      setAnalytics(data);
-      setLoading(false);
-    });
+    fetchAnalytics();
   };
 
   const getFSColor = (status: string) => {
@@ -1133,6 +1141,12 @@ const AnalyticsScreen = ({ onBack }: any) => {
       {loading ? (
         <div className="p-4 space-y-4">
           {[1,2,3,4].map(i => <div key={i} className="h-24 bg-zinc-900 rounded-2xl animate-pulse" />)}
+        </div>
+      ) : apiError ? (
+        <div className="p-4 text-center text-red-400 mt-20">
+          <AlertTriangle className="w-16 h-16 mx-auto mb-4 opacity-70" />
+          <p className="font-medium">{apiError}</p>
+          <Button variant="secondary" onClick={fetchAnalytics} className="mt-4">Повторить</Button>
         </div>
       ) : analytics ? (
         <div className="p-4 space-y-4 pb-20">
