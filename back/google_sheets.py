@@ -680,7 +680,6 @@ class GoogleSheetsManager:
         try:
             serial = float(s.replace(',', '.'))
             if 1000 < serial < 100000:  # разумный диапазон дат
-                from datetime import datetime, timedelta
                 base = datetime(1899, 12, 30)
                 dt = base + timedelta(days=int(serial))
                 return dt, dt.strftime('%Y.%m.%d')
@@ -714,16 +713,27 @@ class GoogleSheetsManager:
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            headers = all_values[0]
-            cols = self._resolve_log_columns(headers)
+            # Определяем, есть ли строка заголовков (первая ячейка — не дата)
+            first_cell = str(all_values[0][0]).strip() if all_values and all_values[0] else ''
+            first_looks_like_date = bool(first_cell) and (
+                (len(first_cell) >= 10 and first_cell[4] in '.-/' and first_cell[7] in '.-/') or
+                any(x in first_cell for x in ['2024', '2025', '2023'])
+            )
+            if first_looks_like_date:
+                data_rows = all_values[0:]
+                cols = {'date': 0, 'ex_id': 1, 'weight': 3, 'reps': 4, 'rest': 5, 'rir': 9}
+            else:
+                headers = all_values[0]
+                cols = self._resolve_log_columns(headers)
+                data_rows = all_values[1:]
+            
             date_idx = cols['date']
             ex_id_idx = cols['ex_id']
             weight_idx = cols['weight']
             reps_idx = cols['reps']
             rest_idx = cols['rest']
-            rir_idx = cols['rir'] if cols['rir'] >= 0 and len(headers) > cols['rir'] else -1
+            rir_idx = cols.get('rir', -1) if cols.get('rir', -1) >= 0 else -1
             
-            data_rows = all_values[1:]
             all_sets = []
             for row in data_rows:
                 if len(row) <= max(date_idx, ex_id_idx, weight_idx, reps_idx):
