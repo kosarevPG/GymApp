@@ -658,8 +658,8 @@ class GoogleSheetsManager:
         date_idx = ex_id_idx = weight_idx = reps_idx = rest_idx = rir_idx = -1
         for i, header in enumerate(headers):
             h = str(header).lower().strip().replace(' ', '_').replace('-', '_')
-            if (date_idx < 0) and ('date' in h or 'дата' in h): date_idx = i
-            elif (ex_id_idx < 0) and (('exercise' in h and 'id' in h) or 'ex_id' in h): ex_id_idx = i
+            if (date_idx < 0) and ('date' in h or 'дата' in h or 'время' in h): date_idx = i
+            elif (ex_id_idx < 0) and (('exercise' in h and 'id' in h and 'name' not in h) or 'ex_id' in h): ex_id_idx = i
             elif (weight_idx < 0) and ('weight' in h or 'вес' in h or 'кг' in h): weight_idx = i
             elif (reps_idx < 0) and ('reps' in h or 'repetitions' in h or 'повтор' in h): reps_idx = i
             elif (rest_idx < 0) and ('rest' in h or 'отдых' in h): rest_idx = i
@@ -696,7 +696,7 @@ class GoogleSheetsManager:
                 continue
         return None, s
     
-    def get_analytics_v4(self, period: int = 14) -> Dict:
+    def get_analytics_v4(self, period: int = 14, debug: bool = False) -> Dict:
         """
         Аналитика v4.0 — Регулярность > Прогресс.
         
@@ -717,7 +717,7 @@ class GoogleSheetsManager:
             first_cell = str(all_values[0][0]).strip() if all_values and all_values[0] else ''
             first_looks_like_date = bool(first_cell) and (
                 (len(first_cell) >= 10 and first_cell[4] in '.-/' and first_cell[7] in '.-/') or
-                any(x in first_cell for x in ['2024', '2025', '2023'])
+                any(x in first_cell for x in ['2024', '2025', '2026', '2023'])
             )
             if first_looks_like_date:
                 data_rows = all_values[0:]
@@ -761,12 +761,18 @@ class GoogleSheetsManager:
                 })
             
             if not all_sets:
-                return self._empty_analytics_v4(period)
+                empty = self._empty_analytics_v4(period)
+                if debug:
+                    empty['_debug'] = {'total_rows': len(all_values), 'data_rows': len(data_rows), 'all_sets_count': 0, 'cols': cols, 'first_row_sample': data_rows[0][:6] if data_rows else None}
+                return empty
             
             today = datetime.now()
             has_dates = any(s['date'] for s in all_sets)
             if not has_dates:
-                return self._empty_analytics_v4(period)
+                empty = self._empty_analytics_v4(period)
+                if debug:
+                    empty['_debug'] = {'total_rows': len(all_values), 'data_rows': len(data_rows), 'all_sets_count': len(all_sets), 'parsed_dates_none': True, 'cols': cols}
+                return empty
             
             window = today - timedelta(days=period)
             sets_in_period = [s for s in all_sets if s['date'] and s['date'] >= window]
@@ -841,7 +847,7 @@ class GoogleSheetsManager:
             # ========== Proposals ==========
             proposals = self._get_pending_proposals()
             
-            return {
+            result = {
                 'mode': mode,
                 'frequencyScore': {
                     'value': fs_value,
@@ -860,10 +866,25 @@ class GoogleSheetsManager:
                 'proposals': proposals,
                 'meta': {'period': period}
             }
+            if debug:
+                result['_debug'] = {
+                    'total_rows': len(all_values),
+                    'data_rows': len(data_rows),
+                    'all_sets_count': len(all_sets),
+                    'sets_in_period_count': len(sets_in_period),
+                    'session_dates': session_dates[:10],
+                    'cols': cols,
+                    'first_row_sample': data_rows[0][:6] if data_rows else None,
+                    'window': window.strftime('%Y-%m-%d') if has_dates else None
+                }
+            return result
             
         except Exception as e:
             logger.error(f"Analytics v4 error: {e}", exc_info=True)
-            return self._empty_analytics_v4(period)
+            empty = self._empty_analytics_v4(period)
+            if debug:
+                empty['_debug'] = {'error': str(e)}
+            return empty
     
     def _get_baselines_map(self) -> Dict:
         """Читает сохранённые baseline из листа"""

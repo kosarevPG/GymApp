@@ -118,7 +118,8 @@ async def api_analytics(request):
     """
     try:
         period = int(request.query.get('period', 14))
-        data = sheets.get_analytics_v4(period=period)
+        debug = request.query.get('debug') == '1'
+        data = sheets.get_analytics_v4(period=period, debug=debug)
         return json_response(data)
     except Exception as e:
         logger.error(f"Analytics error: {e}", exc_info=True)
