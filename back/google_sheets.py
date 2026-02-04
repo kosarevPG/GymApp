@@ -659,7 +659,7 @@ class GoogleSheetsManager:
         for i, header in enumerate(headers):
             h = str(header).lower().strip().replace(' ', '_').replace('-', '_')
             if (date_idx < 0) and ('date' in h or 'дата' in h or 'время' in h): date_idx = i
-            elif (ex_id_idx < 0) and (('exercise' in h and 'id' in h and 'name' not in h) or 'ex_id' in h): ex_id_idx = i
+            elif (ex_id_idx < 0) and ('exercise_id' in h or ('exercise' in h and 'id' in h and 'name' not in h and 'calc' not in h)): ex_id_idx = i
             elif (weight_idx < 0) and ('weight' in h or 'вес' in h or 'кг' in h): weight_idx = i
             elif (reps_idx < 0) and ('reps' in h or 'repetitions' in h or 'повтор' in h): reps_idx = i
             elif (rest_idx < 0) and ('rest' in h or 'отдых' in h): rest_idx = i
@@ -710,6 +710,7 @@ class GoogleSheetsManager:
             if not all_values or len(all_values) < 2:
                 return self._empty_analytics_v4(period)
             
+            # EXERCISES: id, Name — наименования упражнений
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
@@ -746,8 +747,9 @@ class GoogleSheetsManager:
                 if weight <= 0 or reps <= 0:
                     continue
                 rir = DataParser.to_int(row[rir_idx]) if rir_idx >= 0 and rir_idx < len(row) and row[rir_idx] else None
+                # LOG: Exercise_ID (колонка B) — связь с EXERCISES
                 ex_id = str(row[ex_id_idx]).strip() if ex_id_idx < len(row) else ''
-                ex_info = exercises_map.get(ex_id, {})
+                ex_info = exercises_map.get(ex_id, {})  # name из EXERCISES.Name
                 
                 all_sets.append({
                     'date': date_obj,
@@ -835,7 +837,7 @@ class GoogleSheetsManager:
                 status = stored.get('status', 'holding') if stored else ('ready' if bl else 'locked')
                 baselines_list.append({
                     'exerciseId': ex_id,
-                    'name': ex_info.get('name', 'Unknown'),
+                    'name': ex_info.get('name', 'Unknown'),  # EXERCISES.Name
                     'baseline': bl or stored.get('baseline_weight'),
                     'status': status
                 })
