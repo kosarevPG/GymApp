@@ -57,6 +57,8 @@ class GoogleSheetsManager:
             
             self.log_sheet = self.spreadsheet.worksheet('LOG')
             self.exercises_sheet = self.spreadsheet.worksheet('EXERCISES')
+            self._baseline_sheet = None
+            self._baseline_proposals_sheet = None
             
             # Кэш для последних строк LOG листа
             self._log_cache = None
@@ -110,6 +112,26 @@ class GoogleSheetsManager:
         self._log_cache = None
         self._log_cache_timestamp = None
         logger.debug("LOG cache invalidated")
+    
+    def _get_baseline_sheet(self):
+        """Получить лист BASELINE, создать если не существует"""
+        if self._baseline_sheet is None:
+            try:
+                self._baseline_sheet = self.spreadsheet.worksheet('BASELINE')
+            except Exception:
+                self._baseline_sheet = self.spreadsheet.add_worksheet('BASELINE', rows=100, cols=6)
+                self._baseline_sheet.append_row(['exercise_id', 'baseline_weight', 'last_updated', 'peak_90d', 'status'])
+        return self._baseline_sheet
+    
+    def _get_baseline_proposals_sheet(self):
+        """Получить лист BASELINE_PROPOSALS, создать если не существует"""
+        if self._baseline_proposals_sheet is None:
+            try:
+                self._baseline_proposals_sheet = self.spreadsheet.worksheet('BASELINE_PROPOSALS')
+            except Exception:
+                self._baseline_proposals_sheet = self.spreadsheet.add_worksheet('BASELINE_PROPOSALS', rows=50, cols=9)
+                self._baseline_proposals_sheet.append_row(['exercise_id', 'old_baseline', 'new_baseline', 'step', 'evidence', 'created_at', 'expires_at', 'status', 'proposal_id'])
+        return self._baseline_proposals_sheet
 
     def _find_key_case_insensitive(self, record: Dict, candidates: List[str]) -> str:
         """Поиск значения в словаре по списку ключей (без учета регистра и пробелов)"""
@@ -122,6 +144,22 @@ class GoogleSheetsManager:
                 val = record.get(real_key)
                 if val: return str(val) # Возвращаем только если значение не пустое
         return ""
+    
+    def _infer_equipment(self, name: str, image_url: str) -> str:
+        """Infer equipment_type from name or image URL"""
+        s = (name + ' ' + image_url).upper()
+        if 'DB_' in s or 'DUMBBELL' in s or 'ГАНТЕЛ' in s:
+            return 'dumbbell'
+        if any(x in s for x in ['LEG_', 'CABLE', 'MACHINE', 'MAG_', 'LAT_', 'SEATED', 'DEC_', 'INC_', 'HACK', 'LGE_', 'PAR_', 'FACE_', 'OA_', 'PREA_', 'TRICEPS', 'PULL_DOWN', 'PULLDOWN', 'LEG_PRESS', 'LEG_CURL']):
+            return 'machine'
+        return 'barbell'
+    
+    def _infer_exercise_type(self, name: str) -> str:
+        """Infer exercise_type: compound vs isolation"""
+        s = name.upper()
+        if any(x in s for x in ['CURL', 'FLY', 'EXTENSION', 'RAISE', 'KICKBACK', 'PULLOVER']):
+            return 'isolation'
+        return 'compound'
 
     def get_all_exercises(self) -> Dict:
         try:
@@ -146,6 +184,14 @@ class GoogleSheetsManager:
                 description = self._find_key_case_insensitive(r, ['Description', 'description', 'Desc', 'Описание', 'Note', 'Заметка'])
                 image_url = self._find_key_case_insensitive(r, ['Image_URL', 'image_url', 'Image', 'image', 'Фото'])
                 image_url2 = self._find_key_case_insensitive(r, ['Image_URL2', 'image_url2', 'Image2', 'Фото 2', 'Фото2'])
+                equipment = self._find_key_case_insensitive(r, ['Equipment_Type', 'equipment_type', 'Equipment', 'equipment'])
+                ex_type = self._find_key_case_insensitive(r, ['Exercise_Type', 'exercise_type', 'Type', 'type'])
+                
+                # Миграция: infer если колонок нет
+                if not equipment or equipment not in ('barbell', 'dumbbell', 'machine'):
+                    equipment = self._infer_equipment(name_val or '', image_url or '')
+                if not ex_type or ex_type not in ('compound', 'isolation'):
+                    ex_type = self._infer_exercise_type(name_val or '')
                 
                 exercises.append({
                     'id': id_val,
@@ -153,7 +199,9 @@ class GoogleSheetsManager:
                     'muscleGroup': group,
                     'description': description,
                     'imageUrl': image_url,
-                    'imageUrl2': image_url2
+                    'imageUrl2': image_url2,
+                    'equipmentType': equipment or 'barbell',
+                    'exerciseType': ex_type or 'compound'
                 })
             
             # Сортируем упражнения по имени (Name)
@@ -164,13 +212,15 @@ class GoogleSheetsManager:
             logger.error(f"Get exercises error: {e}")
             return {"groups": [], "exercises": []}
 
-    def create_exercise(self, name: str, group: str) -> Dict:
+    def create_exercise(self, name: str, group: str, equipment_type: str = None, exercise_type: str = None) -> Dict:
         new_id = str(uuid.uuid4())
-        # Предполагаем структуру: ID, Name, Muscle Group, Description, Image_URL, Image_URL2
-        row = [new_id, name, group, "", "", ""]
+        eq = equipment_type or self._infer_equipment(name, '')
+        ex_t = exercise_type or self._infer_exercise_type(name)
+        # ID, Name, Muscle Group, Description, Image_URL, Image_URL2, Equipment_Type, Exercise_Type
+        row = [new_id, name, group, "", "", "", eq, ex_t]
         try:
             self.exercises_sheet.append_row(row)
-            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": ""}
+            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": "", "equipmentType": eq, "exerciseType": ex_t}
         except Exception as e:
             logger.error(f"Create exercise error: {e}")
             raise
@@ -191,9 +241,11 @@ class GoogleSheetsManager:
             # Определяем индексы колонок (по умолчанию как в вашем шаблоне)
             name_col = 2
             group_col = 3
-            description_col = 4 # D
-            image_url_col = 5   # E
-            image_url2_col = 6  # F
+            description_col = 4
+            image_url_col = 5
+            image_url2_col = 6
+            equipment_col = 7
+            exercise_type_col = 8
             
             # Пытаемся найти колонки динамически по заголовкам
             for i, header in enumerate(headers, 1):
@@ -204,6 +256,8 @@ class GoogleSheetsManager:
                 elif header_lower in ['description', 'описание', 'desc', 'note'] and i > 1: description_col = i
                 elif header_lower in ['image_url', 'image', 'фото']: image_url_col = i
                 elif header_lower in ['image_url2', 'image2', 'фото2', 'фото_2']: image_url2_col = i
+                elif header_lower in ['equipment_type', 'equipment']: equipment_col = i
+                elif header_lower in ['exercise_type', 'type']: exercise_type_col = i
             
             logger.info(f"Columns map: Desc={description_col}, Img1={image_url_col}, Img2={image_url2_col}")
             logger.info(f"Data keys received: {list(data.keys())}")
@@ -238,6 +292,15 @@ class GoogleSheetsManager:
             if 'imageUrl2' in data: 
                 image_url2 = data['imageUrl2'] if data['imageUrl2'] is not None else ''
                 self.exercises_sheet.update_cell(row_num, image_url2_col, image_url2)
+            
+            if 'equipmentType' in data and equipment_col <= len(headers):
+                eq = data['equipmentType'] or 'barbell'
+                if eq in ('barbell', 'dumbbell', 'machine'):
+                    self.exercises_sheet.update_cell(row_num, equipment_col, eq)
+            if 'exerciseType' in data and exercise_type_col <= len(headers):
+                et = data['exerciseType'] or 'compound'
+                if et in ('compound', 'isolation'):
+                    self.exercises_sheet.update_cell(row_num, exercise_type_col, et)
                 
             return True
         except Exception as e:
@@ -248,6 +311,9 @@ class GoogleSheetsManager:
         """Сохранить подход и вернуть номер строки для последующего update"""
         try:
             timestamp = datetime.now(MOSCOW_TZ).strftime('%Y.%m.%d, %H:%M')
+            # RIR опционально (колонка 10)
+            rir_val = data.get('rir')
+            rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
             row = [
                 timestamp,
                 data.get('exercise_id'),
@@ -257,7 +323,8 @@ class GoogleSheetsManager:
                 DataParser.to_float(data.get('rest')),
                 data.get('set_group_id'),
                 data.get('note', ''),
-                DataParser.to_int(data.get('order'))
+                DataParser.to_int(data.get('order')),
+                rir_cell
             ]
             result = self.log_sheet.append_row(row)
             self._invalidate_log_cache()
@@ -289,10 +356,8 @@ class GoogleSheetsManager:
             row_num = data.get('row_number')
             logger.info(f"update_workout_set called with row_number={row_num}, data keys={list(data.keys())}")
             
-            # Стандартные индексы колонок
-            weight_idx = 3  # D
-            reps_idx = 4    # E
-            rest_idx = 5    # F
+            # Стандартные индексы колонок (1-based для update_cell)
+            weight_col, reps_col, rest_col, rir_col = 4, 5, 6, 10
             
             # Если row_number передан - используем напрямую (надёжный способ)
             if row_num and isinstance(row_num, int) and row_num > 1:
@@ -300,10 +365,13 @@ class GoogleSheetsManager:
                 reps = DataParser.to_int(data.get('reps'))
                 rest = DataParser.to_float(data.get('rest'))
                 
-                # Обновляем ячейки напрямую по номеру строки
-                self.log_sheet.update_cell(row_num, weight_idx + 1, weight)
-                self.log_sheet.update_cell(row_num, reps_idx + 1, reps)
-                self.log_sheet.update_cell(row_num, rest_idx + 1, rest)
+                self.log_sheet.update_cell(row_num, weight_col, weight)
+                self.log_sheet.update_cell(row_num, reps_col, reps)
+                self.log_sheet.update_cell(row_num, rest_col, rest)
+                if 'rir' in data:
+                    rir_val = data.get('rir')
+                    rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
+                    self.log_sheet.update_cell(row_num, rir_col, rir_cell)
                 
                 self._invalidate_log_cache()
                 logger.info(f"Updated workout set row {row_num} directly: weight={weight}, reps={reps}, rest={rest}")
@@ -585,20 +653,11 @@ class GoogleSheetsManager:
             logger.error(f"Global history error: {e}")
             return []
 
-    def get_analytics_data(self, period: int = 14, anchor_ids: list = None) -> Dict:
+    def get_analytics_v4(self, period: int = 14) -> Dict:
         """
-        Аналитика v3.0 — Универсальная система с 5 инвариантными метриками.
+        Аналитика v4.0 — Регулярность > Прогресс.
         
-        Метрики:
-        ① Strength Trend (ST) — изменение силы в якорных упражнениях
-        ② Stimulus Volume (SV) — суммарный эффективный стимул от hard sets
-        ③ Fatigue Accumulation (FA) — соотношение стимула к результату
-        ④ Efficiency Index (EI) — главный KPI: ST / SV
-        ⑤ Consistency (C) — стабильность тренировок
-        
-        Параметры:
-        - period: количество дней для анализа (7, 14, 21, 28)
-        - anchor_ids: список ID якорных упражнений для расчёта ST
+        Метрики: Frequency Score, Max Gap, Return to Baseline, Baseline, Stability Gate.
         """
         from datetime import datetime, timedelta
         import statistics
@@ -606,19 +665,14 @@ class GoogleSheetsManager:
         try:
             all_values = self.log_sheet.get_all_values()
             if not all_values or len(all_values) < 2:
-                return self._empty_analytics_v3()
+                return self._empty_analytics_v4()
             
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            data_rows = all_values[1:]
-            ex_id_idx, date_idx, weight_idx, reps_idx = 1, 0, 3, 4
-            
-            logger.info(f"Analytics v3: {len(data_rows)} rows, period={period}d, anchors={anchor_ids}")
-            
-            # ========== ПАРСИНГ ДАТ ==========
+            # Парсинг LOG
             def parse_date(date_str_raw: str):
-                date_str = date_str_raw.split(',')[0].strip()
+                date_str = str(date_str_raw).split(',')[0].strip()
                 if not date_str:
                     return None, ''
                 for fmt in ['%Y.%m.%d', '%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y']:
@@ -628,278 +682,267 @@ class GoogleSheetsManager:
                         continue
                 return None, date_str
             
-            # ========== СБОР ДАННЫХ ==========
+            data_rows = all_values[1:]
+            date_idx, ex_id_idx, weight_idx, reps_idx, rest_idx = 0, 1, 3, 4, 5
+            rir_idx = 9 if len(all_values[0]) > 9 else -1
+            
             all_sets = []
             for row in data_rows:
-                if len(row) < 5:
+                if len(row) < 6:
                     continue
-                
-                date_obj, date_str = parse_date(str(row[date_idx]).strip())
+                date_obj, date_str = parse_date(row[date_idx])
                 if not date_str:
                     continue
-                
-                ex_id = str(row[ex_id_idx]).strip()
-                ex_info = exercises_map.get(ex_id, {})
                 weight = DataParser.to_float(row[weight_idx])
                 reps = DataParser.to_int(row[reps_idx])
-                
                 if weight <= 0 or reps <= 0:
                     continue
-                
-                # e1RM по Epley (НЕ МЕНЯЕТСЯ)
-                e1rm = round(weight * (1 + reps / 30), 1)
+                rir = DataParser.to_int(row[rir_idx]) if rir_idx >= 0 and rir_idx < len(row) and row[rir_idx] else None
+                ex_id = str(row[ex_id_idx]).strip()
+                ex_info = exercises_map.get(ex_id, {})
                 
                 all_sets.append({
                     'date': date_obj,
                     'date_str': date_str,
                     'ex_id': ex_id,
-                    'ex_name': ex_info.get('name', 'Unknown'),
-                    'muscle_group': ex_info.get('muscleGroup', 'Other'),
                     'weight': weight,
                     'reps': reps,
-                    'e1rm': e1rm,
-                    'volume': weight * reps
+                    'rir': rir,
+                    'equipment_type': ex_info.get('equipmentType', 'barbell'),
+                    'exercise_type': ex_info.get('exerciseType', 'compound')
                 })
             
             if not all_sets:
-                logger.warning("Analytics v3: no sets collected")
-                return self._empty_analytics_v3()
+                return self._empty_analytics_v4()
             
-            # ========== BEST e1RM ДЛЯ КАЖДОГО УПРАЖНЕНИЯ ==========
-            best_e1rm_by_ex = {}
-            for s in all_sets:
-                ex_id = s['ex_id']
-                if ex_id not in best_e1rm_by_ex or s['e1rm'] > best_e1rm_by_ex[ex_id]:
-                    best_e1rm_by_ex[ex_id] = s['e1rm']
-            
-            # ========== INTENSITY И HARD SETS ==========
-            for s in all_sets:
-                best = best_e1rm_by_ex.get(s['ex_id'], s['e1rm'])
-                # Intensity для SV = weight / best_e1RM
-                s['intensity'] = round(s['weight'] / best, 3) if best > 0 else 0
-                
-                # Rep-based intensity = 1 / (1 + reps/30)
-                # Это процент от 1RM который ты поднимаешь на данных повторениях
-                # 6 reps = 83%, 10 reps = 75%, 12 reps = 71%, 13 reps = 70%
-                rep_intensity = 1 / (1 + s['reps'] / 30)
-                
-                # Hard set: rep_intensity >= 70% (≤13 reps) ИЛИ weight_intensity >= 60%
-                # Это более справедливо чем только weight/best_ever
-                s['is_hard_set'] = rep_intensity >= 0.70 or s['intensity'] >= 0.60
-            
-            # ========== ВРЕМЕННЫЕ ОКНА ==========
             today = datetime.now()
-            has_dates = any(s['date'] is not None for s in all_sets)
+            has_dates = any(s['date'] for s in all_sets)
+            if not has_dates:
+                return self._empty_analytics_v4()
             
-            if has_dates:
-                window_T = today - timedelta(days=period)
-                window_prev_T = today - timedelta(days=period * 2)
-                window_7d = today - timedelta(days=7)
-                
-                sets_T = [s for s in all_sets if s['date'] and s['date'] >= window_T]
-                sets_prev_T = [s for s in all_sets if s['date'] and window_prev_T <= s['date'] < window_T]
-                sets_7d = [s for s in all_sets if s['date'] and s['date'] >= window_7d]
+            window = today - timedelta(days=period)
+            sets_in_period = [s for s in all_sets if s['date'] and s['date'] >= window]
+            
+            # Sessions = уникальные даты с тренировками
+            session_dates = sorted(set(s['date_str'] for s in sets_in_period if s['date_str']))
+            
+            # ========== Frequency Score ==========
+            target_sessions = max(1, int(period / 7 * 3))  # 3/нед
+            actual_sessions = len(session_dates)
+            fs_value = round(actual_sessions / target_sessions, 2) if target_sessions > 0 else 0
+            
+            if fs_value >= 0.8:
+                fs_status = 'green'
+            elif fs_value >= 0.6:
+                fs_status = 'yellow'
             else:
-                # Fallback без дат
-                mid = len(all_sets) // 2
-                sets_T = all_sets[mid:]
-                sets_prev_T = all_sets[:mid]
-                sets_7d = all_sets[-max(1, len(all_sets)//4):]
+                fs_status = 'red'
             
-            # ========== ① STRENGTH TREND (ST) ==========
-            # Медиана e1RM якорных упражнений, сравнение периодов
+            # ========== Max Gap ==========
+            unique_dates = sorted(set(s['date'] for s in all_sets if s['date']))
+            max_gap = 0
+            if len(unique_dates) >= 2:
+                gaps = [(unique_dates[i] - unique_dates[i-1]).days for i in range(1, len(unique_dates))]
+                max_gap = max(gaps) if gaps else 0
             
-            def calc_median_e1rm(sets_list, ex_ids):
-                """Медиана max e1RM по дням для заданных упражнений"""
-                if not ex_ids:
-                    # Если нет якорей — используем все упражнения
-                    ex_ids = list(best_e1rm_by_ex.keys())
-                
-                daily_max = {}  # ex_id -> {date -> max_e1rm}
-                for s in sets_list:
-                    if s['ex_id'] not in ex_ids:
-                        continue
-                    ex_id = s['ex_id']
-                    d = s['date_str']
-                    if ex_id not in daily_max:
-                        daily_max[ex_id] = {}
-                    if d not in daily_max[ex_id] or s['e1rm'] > daily_max[ex_id][d]:
-                        daily_max[ex_id][d] = s['e1rm']
-                
-                # Медиана по каждому упражнению
-                medians = []
-                for ex_id, days in daily_max.items():
-                    if days:
-                        medians.append(statistics.median(days.values()))
-                
-                return statistics.median(medians) if medians else 0
-            
-            median_T = calc_median_e1rm(sets_T, anchor_ids)
-            median_prev_T = calc_median_e1rm(sets_prev_T, anchor_ids)
-            
-            if median_prev_T > 0:
-                strength_trend = round((median_T - median_prev_T) / median_prev_T * 100, 2)
+            if max_gap <= 4:
+                mg_status = 'ok'
+                mg_interpretation = 'Регулярно'
+            elif max_gap <= 7:
+                mg_status = 'warning'
+                mg_interpretation = 'Потребуется адаптация'
             else:
-                strength_trend = 0
+                mg_status = 'vkat'
+                mg_interpretation = 'Режим Вкат'
             
-            # Направление ST
-            if strength_trend > 1:
-                st_direction = 'up'
-            elif strength_trend < -1:
-                st_direction = 'down'
+            # ========== Режим ==========
+            if max_gap > 7:
+                mode = 'Вкат'
+            elif fs_value < 0.6:
+                mode = 'Поддержание'
             else:
-                st_direction = 'stable'
+                mode = 'Стабильный'
             
-            # ========== ② STIMULUS VOLUME (SV) ==========
-            # Сумма intensity для всех hard sets за период
+            # ========== Return to Baseline ==========
+            return_to_baseline = None
+            if max_gap > 7:
+                # Считаем тренировки до первого достижения baseline
+                baselines = self._get_baselines_map()
+                if baselines:
+                    # Упрощённо: считаем по первой тренировке после паузы
+                    return_to_baseline = {'value': 0, 'visible': True}
             
-            hard_sets_T = [s for s in sets_T if s['is_hard_set']]
-            stimulus_volume = round(sum(s['intensity'] for s in hard_sets_T), 2)
-            
-            # Сравнение с предыдущим периодом для статуса
-            hard_sets_prev = [s for s in sets_prev_T if s['is_hard_set']]
-            sv_prev = sum(s['intensity'] for s in hard_sets_prev) if hard_sets_prev else 0
-            
-            # Статус SV (по историческому распределению)
-            if sv_prev > 0:
-                sv_ratio = stimulus_volume / sv_prev
-                if sv_ratio < 0.7:
-                    sv_status = 'low'
-                elif sv_ratio > 1.3:
-                    sv_status = 'high'
-                else:
-                    sv_status = 'ok'
-            else:
-                sv_status = 'ok' if stimulus_volume > 0 else 'low'
-            
-            # ========== ③ FATIGUE ACCUMULATION (FA) ==========
-            # FA = SV_7d / |ST_period|
-            
-            hard_sets_7d = [s for s in sets_7d if s['is_hard_set']]
-            sv_7d = sum(s['intensity'] for s in hard_sets_7d)
-            
-            epsilon = 0.1  # Малое число чтобы избежать деления на 0
-            fatigue_raw = sv_7d / (abs(strength_trend) + epsilon)
-            
-            # Нормализация FA
-            if fatigue_raw < 5:
-                fa_status = 'low'
-            elif fatigue_raw < 20:
-                fa_status = 'moderate'
-            else:
-                fa_status = 'high'
-            
-            # ========== ④ EFFICIENCY INDEX (EI) ==========
-            # EI = ST / SV — главный KPI
-            
-            if stimulus_volume > 0:
-                efficiency_index = round(strength_trend / stimulus_volume, 3)
-            else:
-                efficiency_index = 0
-            
-            # Направление EI
-            if efficiency_index > 0.1:
-                ei_direction = 'positive'
-            elif efficiency_index < -0.1:
-                ei_direction = 'negative'
-            else:
-                ei_direction = 'neutral'
-            
-            # ========== ⑤ CONSISTENCY (C) ==========
-            # C = 1 - CV(volume_per_week)
-            
-            # Группируем объём по неделям
-            weekly_volumes = {}
-            for s in all_sets:
-                if s['date']:
-                    week = s['date'].isocalendar()[1]
-                    year = s['date'].year
-                    key = f"{year}-W{week}"
-                    weekly_volumes[key] = weekly_volumes.get(key, 0) + s['volume']
-            
-            if len(weekly_volumes) >= 2:
-                volumes = list(weekly_volumes.values())
-                mean_vol = statistics.mean(volumes)
-                stdev_vol = statistics.stdev(volumes) if len(volumes) > 1 else 0
-                cv = stdev_vol / mean_vol if mean_vol > 0 else 0
-                consistency = round(max(0, 1 - cv), 2)
-            else:
-                consistency = 1.0  # Недостаточно данных
-            
-            # Статус consistency
-            if consistency >= 0.8:
-                c_status = 'stable'
-            else:
-                c_status = 'unstable'
-            
-            # ========== СПИСОК УПРАЖНЕНИЙ ДЛЯ ВЫБОРА ЯКОРЕЙ ==========
-            exercise_list = []
-            for ex_id, best in best_e1rm_by_ex.items():
-                ex_info = exercises_map.get(ex_id, {})
-                exercise_list.append({
-                    'id': ex_id,
+            # ========== Baseline по упражнениям ==========
+            baselines_map = self._get_baselines_map()
+            baselines_list = []
+            for ex_id, ex_info in exercises_map.items():
+                bl = self._calc_baseline_for_exercise(ex_id, ex_info, all_sets)
+                stored = baselines_map.get(ex_id, {})
+                status = stored.get('status', 'holding') if stored else ('ready' if bl else 'locked')
+                baselines_list.append({
+                    'exerciseId': ex_id,
                     'name': ex_info.get('name', 'Unknown'),
-                    'muscleGroup': ex_info.get('muscleGroup', 'Other'),
-                    'bestE1RM': best,
-                    'isAnchor': ex_id in (anchor_ids or [])
+                    'baseline': bl or stored.get('baseline_weight'),
+                    'status': status
                 })
-            exercise_list.sort(key=lambda x: x['bestE1RM'], reverse=True)
             
-            # ========== РЕЗУЛЬТАТ ==========
+            # ========== Stability Gate ==========
+            days_since_baseline_change = 999  # TODO: from BASELINE sheet
+            stability_gate = fs_value >= 0.75 and max_gap <= 7 and days_since_baseline_change >= 21
+            
+            # ========== Proposals ==========
+            proposals = self._get_pending_proposals()
+            
             return {
-                'strengthTrend': {
-                    'value': strength_trend,
-                    'direction': st_direction,
-                    'medianCurrent': round(median_T, 1),
-                    'medianPrevious': round(median_prev_T, 1),
-                    'tooltip': 'Strength Trend — изменение оценочной силы в якорных упражнениях за выбранный период. Считается по e1RM (Epley), сглажено медианой.'
+                'mode': mode,
+                'frequencyScore': {
+                    'value': fs_value,
+                    'status': fs_status,
+                    'actual': actual_sessions,
+                    'target': target_sessions
                 },
-                'stimulusVolume': {
-                    'value': stimulus_volume,
-                    'status': sv_status,
-                    'hardSetsCount': len(hard_sets_T),
-                    'tooltip': 'Stimulus Volume — суммарный эффективный стимул, полученный от тяжёлых подходов. Учитывает только подходы с intensity ≥ 70% e1RM.'
+                'maxGap': {
+                    'value': max_gap,
+                    'status': mg_status,
+                    'interpretation': mg_interpretation
                 },
-                'fatigueAccumulation': {
-                    'value': round(fatigue_raw, 2),
-                    'status': fa_status,
-                    'sv7d': round(sv_7d, 2),
-                    'tooltip': 'Fatigue Accumulation показывает, сколько стимула требуется для изменения силы. Высокие значения — признак накопленной усталости или низкой адаптации.'
-                },
-                'efficiencyIndex': {
-                    'value': efficiency_index,
-                    'direction': ei_direction,
-                    'tooltip': 'Efficiency Index — сколько изменения силы ты получаешь на единицу тренировочного стимула. Работает одинаково при наборе, сушке и поддержании.'
-                },
-                'consistency': {
-                    'value': consistency,
-                    'status': c_status,
-                    'weeksAnalyzed': len(weekly_volumes),
-                    'tooltip': 'Consistency отражает регулярность тренировок и стабильность нагрузки. Низкая консистентность снижает доверие к остальным показателям.'
-                },
-                'exercises': exercise_list,
-                'meta': {
-                    'period': period,
-                    'anchorIds': anchor_ids or [],
-                    'totalSets': len(all_sets),
-                    'setsInPeriod': len(sets_T),
-                    'hardSetsInPeriod': len(hard_sets_T),
-                    'formula': 'e1RM = weight × (1 + reps / 30) [Epley]'
-                }
+                'returnToBaseline': return_to_baseline,
+                'stabilityGate': stability_gate,
+                'baselines': baselines_list,
+                'proposals': proposals,
+                'meta': {'period': period}
             }
             
         except Exception as e:
-            logger.error(f"Analytics v3 error: {e}", exc_info=True)
-            return self._empty_analytics_v3()
+            logger.error(f"Analytics v4 error: {e}", exc_info=True)
+            return self._empty_analytics_v4()
     
-    def _empty_analytics_v3(self) -> Dict:
-        """Пустой результат аналитики v3"""
+    def _get_baselines_map(self) -> Dict:
+        """Читает сохранённые baseline из листа"""
+        try:
+            sheet = self._get_baseline_sheet()
+            rows = sheet.get_all_values()
+            if len(rows) < 2:
+                return {}
+            result = {}
+            for row in rows[1:]:
+                if len(row) >= 5:
+                    result[row[0]] = {
+                        'baseline_weight': DataParser.to_float(row[1]),
+                        'last_updated': row[2] if len(row) > 2 else '',
+                        'peak_90d': DataParser.to_float(row[3]) if len(row) > 3 else 0,
+                        'status': row[4] if len(row) > 4 else 'active'
+                    }
+            return result
+        except Exception as e:
+            logger.warning(f"Could not read BASELINE sheet: {e}")
+            return {}
+    
+    def _calc_baseline_for_exercise(self, ex_id: str, ex_info: Dict, all_sets: List) -> Optional[float]:
+        """Расчёт Baseline для упражнения по последним 8 тренировкам"""
+        import statistics
+        ex_sets = [s for s in all_sets if s['ex_id'] == ex_id]
+        if not ex_sets:
+            return None
+        
+        eq_type = ex_info.get('equipmentType', 'barbell')
+        ex_type = ex_info.get('exerciseType', 'compound')
+        reps_min, reps_max = (6, 12) if ex_type == 'compound' else (8, 15)
+        
+        # Группируем по дате, берём лучший сет за день
+        by_date = {}
+        for s in ex_sets:
+            if not s['date']:
+                continue
+            d = s['date_str']
+            if reps_min <= s['reps'] <= reps_max:
+                if d not in by_date or s['weight'] > by_date[d]['weight']:
+                    rir_ok = s['rir'] is None or (1 <= s['rir'] <= 3)
+                    if rir_ok or s['rir'] is None:
+                        by_date[d] = {'weight': s['weight'], 'reps': s['reps']}
+        
+        # Берём последние 8 тренировок
+        sorted_dates = sorted(by_date.keys(), reverse=True)[:8]
+        candidates = [by_date[d]['weight'] for d in sorted_dates]
+        
+        if len(candidates) < 4:
+            return None
+        
+        # Удаление пиков
+        if len(candidates) >= 10:
+            candidates = sorted(candidates)[:-max(1, len(candidates) // 10)]
+        elif len(candidates) >= 4:
+            candidates = sorted(candidates)[:-1]
+        
+        if not candidates:
+            return None
+        
+        baseline = statistics.median(candidates)
+        step = 2.5 if eq_type == 'barbell' else 1
+        baseline = round(baseline / step) * step
+        return round(baseline, 1)
+    
+    def _get_pending_proposals(self) -> List:
+        """Читает активные proposals"""
+        try:
+            sheet = self._get_baseline_proposals_sheet()
+            rows = sheet.get_all_values()
+            if len(rows) < 2:
+                return []
+            result = []
+            for row in rows[1:]:
+                if len(row) >= 8 and row[7] == 'PENDING':
+                    result.append({
+                        'exerciseId': row[0],
+                        'oldBaseline': DataParser.to_float(row[1]),
+                        'newBaseline': DataParser.to_float(row[2]),
+                        'step': DataParser.to_float(row[3]),
+                        'expiresAt': row[6] if len(row) > 6 else '',
+                        'proposalId': row[8] if len(row) > 8 else ''
+                    })
+            return result
+        except Exception as e:
+            return []
+    
+    def confirm_baseline_proposal(self, proposal_id: str, action: str) -> Dict:
+        """CONFIRM | SNOOZE | DECLINE proposal"""
+        try:
+            sheet = self._get_baseline_proposals_sheet()
+            rows = sheet.get_all_values()
+            if len(rows) < 2:
+                return {"success": False, "error": "No proposals"}
+            
+            for i, row in enumerate(rows[1:], start=2):
+                if len(row) > 8 and row[8] == proposal_id:
+                    sheet.update_cell(i, 8, action)  # status column
+                    if action == 'CONFIRM':
+                        ex_id = row[0]
+                        new_baseline = row[2]
+                        # Update BASELINE sheet
+                        bl_sheet = self._get_baseline_sheet()
+                        bl_rows = bl_sheet.get_all_values()
+                        for j, bl_row in enumerate(bl_rows[1:], start=2):
+                            if bl_row and bl_row[0] == ex_id:
+                                bl_sheet.update_cell(j, 2, new_baseline)
+                                bl_sheet.update_cell(j, 3, datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d'))
+                                bl_sheet.update_cell(j, 5, 'updated')
+                                break
+                        else:
+                            bl_sheet.append_row([ex_id, new_baseline, datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d'), '', 'updated'])
+                    return {"success": True, "action": action}
+            return {"success": False, "error": "Proposal not found"}
+        except Exception as e:
+            logger.error(f"confirm_baseline_proposal error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    def _empty_analytics_v4(self) -> Dict:
         return {
-            'strengthTrend': {'value': 0, 'direction': 'stable', 'medianCurrent': 0, 'medianPrevious': 0, 'tooltip': ''},
-            'stimulusVolume': {'value': 0, 'status': 'low', 'hardSetsCount': 0, 'tooltip': ''},
-            'fatigueAccumulation': {'value': 0, 'status': 'low', 'sv7d': 0, 'tooltip': ''},
-            'efficiencyIndex': {'value': 0, 'direction': 'neutral', 'tooltip': ''},
-            'consistency': {'value': 0, 'status': 'unstable', 'weeksAnalyzed': 0, 'tooltip': ''},
-            'exercises': [],
-            'meta': {'period': 14, 'anchorIds': [], 'totalSets': 0, 'setsInPeriod': 0, 'hardSetsInPeriod': 0, 'formula': ''}
+            'mode': 'Поддержание',
+            'frequencyScore': {'value': 0, 'status': 'red', 'actual': 0, 'target': 3},
+            'maxGap': {'value': 0, 'status': 'ok', 'interpretation': ''},
+            'returnToBaseline': None,
+            'stabilityGate': False,
+            'baselines': [],
+            'proposals': [],
+            'meta': {'period': 14}
         }

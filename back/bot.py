@@ -111,22 +111,31 @@ async def api_global_history(request):
 
 async def api_analytics(request):
     """
-    Аналитика v3.0 с 5 универсальными метриками.
+    Аналитика v4.0 — Регулярность > Прогресс.
     
     Query params:
-    - period: int (7, 14, 21, 28) - период анализа в днях
-    - anchors: str - comma-separated exercise IDs для Strength Trend
+    - period: int (7, 14, 28) - период анализа в днях
     """
     try:
-        # Парсим параметры
         period = int(request.query.get('period', 14))
-        anchors_str = request.query.get('anchors', '')
-        anchor_ids = [a.strip() for a in anchors_str.split(',') if a.strip()] if anchors_str else None
-        
-        data = sheets.get_analytics_data(period=period, anchor_ids=anchor_ids)
+        data = sheets.get_analytics_v4(period=period)
         return json_response(data)
     except Exception as e:
         logger.error(f"Analytics error: {e}", exc_info=True)
+        return json_response({"error": str(e)}, 500)
+
+async def api_confirm_baseline(request):
+    """Подтвердить/отклонить/отложить proposal по Baseline"""
+    try:
+        data = await request.json()
+        proposal_id = data.get('proposalId')
+        action = data.get('action')  # CONFIRM | SNOOZE | DECLINE
+        if not proposal_id or action not in ('CONFIRM', 'SNOOZE', 'DECLINE'):
+            return json_response({"error": "Missing proposalId or invalid action"}, 400)
+        result = sheets.confirm_baseline_proposal(proposal_id, action)
+        return json_response(result)
+    except Exception as e:
+        logger.error(f"Confirm baseline error: {e}", exc_info=True)
         return json_response({"error": str(e)}, 500)
 
 async def api_save_set(request):
@@ -235,6 +244,7 @@ async def main():
         web.get('/api/history', api_history),
         web.get('/api/global_history', api_global_history),
         web.get('/api/analytics', api_analytics),
+        web.post('/api/confirm_baseline', api_confirm_baseline),
         web.get('/api/ping', api_ping),
         web.post('/api/save_set', api_save_set),
         web.post('/api/update_set', api_update_set),
