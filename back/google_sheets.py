@@ -675,9 +675,17 @@ class GoogleSheetsManager:
             # ========== INTENSITY И HARD SETS ==========
             for s in all_sets:
                 best = best_e1rm_by_ex.get(s['ex_id'], s['e1rm'])
+                # Intensity для SV = weight / best_e1RM
                 s['intensity'] = round(s['weight'] / best, 3) if best > 0 else 0
-                # Hard set: intensity >= 70% e1RM (спец требование)
-                s['is_hard_set'] = s['intensity'] >= 0.70
+                
+                # Rep-based intensity = 1 / (1 + reps/30)
+                # Это процент от 1RM который ты поднимаешь на данных повторениях
+                # 6 reps = 83%, 10 reps = 75%, 12 reps = 71%, 13 reps = 70%
+                rep_intensity = 1 / (1 + s['reps'] / 30)
+                
+                # Hard set: rep_intensity >= 70% (≤13 reps) ИЛИ weight_intensity >= 60%
+                # Это более справедливо чем только weight/best_ever
+                s['is_hard_set'] = rep_intensity >= 0.70 or s['intensity'] >= 0.60
             
             # ========== ВРЕМЕННЫЕ ОКНА ==========
             today = datetime.now()
