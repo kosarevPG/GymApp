@@ -110,9 +110,20 @@ async def api_global_history(request):
         return json_response({"error": str(e)}, 500)
 
 async def api_analytics(request):
-    """Продвинутая аналитика: e1RM, частота, баланс, алерты"""
+    """
+    Аналитика v3.0 с 5 универсальными метриками.
+    
+    Query params:
+    - period: int (7, 14, 21, 28) - период анализа в днях
+    - anchors: str - comma-separated exercise IDs для Strength Trend
+    """
     try:
-        data = sheets.get_analytics_data()
+        # Парсим параметры
+        period = int(request.query.get('period', 14))
+        anchors_str = request.query.get('anchors', '')
+        anchor_ids = [a.strip() for a in anchors_str.split(',') if a.strip()] if anchors_str else None
+        
+        data = sheets.get_analytics_data(period=period, anchor_ids=anchor_ids)
         return json_response(data)
     except Exception as e:
         logger.error(f"Analytics error: {e}", exc_info=True)

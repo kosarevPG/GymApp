@@ -4,8 +4,7 @@ import {
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
   History as HistoryIcon, Activity, Link as LinkIcon, BarChart3,
-  AlertTriangle, ArrowUp, ArrowDown, Target,
-  TrendingUp, TrendingDown, Minus, Lightbulb, Scale
+  AlertTriangle, Target, TrendingUp, Scale
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -96,9 +95,14 @@ const api = {
       return data || [];
   },
 
-  getAnalytics: async () => {
-      const data = await api.request('analytics');
-      return data || { exerciseStats: {}, muscleGroupStats: {}, balance: {}, alerts: [] };
+  getAnalytics: async (period: number = 14, anchorIds: string[] = []) => {
+      const params = new URLSearchParams();
+      params.set('period', period.toString());
+      if (anchorIds.length > 0) {
+        params.set('anchors', anchorIds.join(','));
+      }
+      const data = await api.request(`analytics?${params.toString()}`);
+      return data || null;
   },
 
   saveSet: async (data: any) => {
@@ -1044,379 +1048,330 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
   );
 };
 
-// --- ANALYTICS v2.0 ---
-// Принцип: каждая метрика должна вести к действию
+// --- ANALYTICS v3.0 ---
+// 5 универсальных инвариантных метрик
 
-interface AnalyticsDataV2 {
-  status: {
-    progressIndex: 'up' | 'stable' | 'down';
-    progressValue: number;
-    fatigueIndex: 'low' | 'ok' | 'high';
-    fatigueValue: number;
-    avgE1rmTrend: number;
+const ANCHOR_STORAGE_KEY = 'gym_anchor_exercises';
+
+interface AnalyticsDataV3 {
+  strengthTrend: {
+    value: number;
+    direction: 'up' | 'stable' | 'down';
+    medianCurrent: number;
+    medianPrevious: number;
+    tooltip: string;
   };
-  muscleBalance: {
-    stimulus: Record<string, number>;  // hard sets %
-    status: Record<string, 'low' | 'ok' | 'high'>;
-    targetRanges: Record<string, [number, number]>;
-    symmetry: { pair: string; ratio: number | string; isBalanced: boolean }[];
+  stimulusVolume: {
+    value: number;
+    status: 'low' | 'ok' | 'high';
+    hardSetsCount: number;
+    tooltip: string;
   };
-  patterns: Record<string, { avgTrend: number; isPlateau: boolean }>;
-  inefficiencies: {
-    exerciseId: string;
+  fatigueAccumulation: {
+    value: number;
+    status: 'low' | 'moderate' | 'high';
+    sv7d: number;
+    tooltip: string;
+  };
+  efficiencyIndex: {
+    value: number;
+    direction: 'positive' | 'neutral' | 'negative';
+    tooltip: string;
+  };
+  consistency: {
+    value: number;
+    status: 'stable' | 'unstable';
+    weeksAnalyzed: number;
+    tooltip: string;
+  };
+  exercises: {
+    id: string;
     name: string;
     muscleGroup: string;
-    efficiency: number;
-    e1rmTrend: number;
-    volume21d: number;
-    reason: string;
+    bestE1RM: number;
+    isAnchor: boolean;
   }[];
-  recommendations: {
-    type: string;
-    priority: 'high' | 'medium' | 'low';
-    message: string;
-    action: string;
-  }[];
-  exerciseStats: Record<string, any>;
   meta: {
+    period: number;
+    anchorIds: string[];
     totalSets: number;
-    hardSets7d: number;
-    avgIntensity7d: number;
-    daysAnalyzed: number;
+    setsInPeriod: number;
+    hardSetsInPeriod: number;
+    formula: string;
   };
 }
 
+// Tooltip component
+const Tooltip = ({ text, children }: { text: string; children: React.ReactNode }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative inline-block">
+      <button onClick={() => setShow(!show)} className="text-zinc-500 hover:text-zinc-300">
+        {children}
+      </button>
+      {show && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300 shadow-xl">
+          {text}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-800" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AnalyticsScreen = ({ onBack }: any) => {
-  const [analytics, setAnalytics] = useState<AnalyticsDataV2 | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsDataV3 | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showDetails, setShowDetails] = useState(false);
+  const [period, setPeriod] = useState(14);
+  const [anchorIds, setAnchorIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem(ANCHOR_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [showAnchorModal, setShowAnchorModal] = useState(false);
   
-  useEffect(() => { 
-    api.getAnalytics().then((data: AnalyticsDataV2) => {
+  // Загрузка данных при изменении периода или якорей
+  useEffect(() => {
+    setLoading(true);
+    api.getAnalytics(period, anchorIds).then((data: AnalyticsDataV3) => {
       setAnalytics(data);
       setLoading(false);
     });
-  }, []);
+  }, [period, anchorIds]);
+
+  // Сохранение якорей
+  const saveAnchors = (ids: string[]) => {
+    setAnchorIds(ids);
+    localStorage.setItem(ANCHOR_STORAGE_KEY, JSON.stringify(ids));
+  };
+
+  const toggleAnchor = (id: string) => {
+    const newAnchors = anchorIds.includes(id) 
+      ? anchorIds.filter(a => a !== id)
+      : anchorIds.length < 4 ? [...anchorIds, id] : anchorIds;
+    saveAnchors(newAnchors);
+  };
 
   const hasData = analytics && analytics.meta?.totalSets > 0;
 
-  // Иконки и цвета для индексов
-  const getProgressIcon = (index: string) => {
-    if (index === 'up') return <TrendingUp className="w-5 h-5" />;
-    if (index === 'down') return <TrendingDown className="w-5 h-5" />;
-    return <Minus className="w-5 h-5" />;
-  };
-  
-  const getProgressColor = (index: string) => {
-    if (index === 'up') return 'text-green-500';
-    if (index === 'down') return 'text-red-500';
+  // Цвета для Strength Trend
+  const getSTColor = (dir: string) => {
+    if (dir === 'up') return 'text-green-500';
+    if (dir === 'down') return 'text-red-500';
     return 'text-zinc-400';
   };
-  
-  const getFatigueColor = (index: string) => {
-    if (index === 'low') return 'text-blue-400';
-    if (index === 'high') return 'text-red-500';
+
+  // Цвета для статусов
+  const getStatusColor = (status: string) => {
+    if (status === 'low') return 'text-blue-400';
+    if (status === 'high') return 'text-red-500';
+    if (status === 'moderate') return 'text-yellow-500';
     return 'text-green-500';
   };
-  
-  const getFatigueBg = (index: string) => {
-    if (index === 'low') return 'bg-blue-500/20';
-    if (index === 'high') return 'bg-red-500/20';
-    return 'bg-green-500/20';
-  };
 
-  const getPriorityColor = (priority: string) => {
-    if (priority === 'high') return 'border-l-red-500 bg-red-500/5';
-    if (priority === 'medium') return 'border-l-yellow-500 bg-yellow-500/5';
-    return 'border-l-blue-500 bg-blue-500/5';
-  };
-
-  const getBalanceStatusIcon = (status: string) => {
-    if (status === 'ok') return <Check className="w-3 h-3 text-green-500" />;
-    if (status === 'low') return <ArrowDown className="w-3 h-3 text-red-500" />;
-    return <ArrowUp className="w-3 h-3 text-yellow-500" />;
+  const getEIColor = (dir: string) => {
+    if (dir === 'positive') return 'text-green-500';
+    if (dir === 'negative') return 'text-red-500';
+    return 'text-zinc-400';
   };
 
   return (
     <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
-      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4 flex items-center gap-4">
-        <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white"><ChevronLeft className="w-6 h-6" /></button>
-        <h1 className="text-xl font-bold">Аналитика</h1>
-        {hasData && (
-          <span className="ml-auto text-xs text-zinc-500">
-            {analytics?.meta?.daysAnalyzed} дней данных
-          </span>
-        )}
+      {/* Header */}
+      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4">
+        <div className="flex items-center gap-4 mb-3">
+          <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <h1 className="text-xl font-bold">Аналитика</h1>
+          <button 
+            onClick={() => setShowAnchorModal(true)}
+            className="ml-auto text-xs px-3 py-1.5 bg-zinc-800 rounded-lg text-zinc-400 hover:text-white flex items-center gap-1"
+          >
+            <Target className="w-3 h-3" />
+            Якоря ({anchorIds.length}/4)
+          </button>
+        </div>
+        
+        {/* Period selector */}
+        <div className="flex gap-2">
+          {[7, 14, 21, 28].map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                period === p 
+                  ? 'bg-blue-500 text-white' 
+                  : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              {p}д
+            </button>
+          ))}
+        </div>
       </div>
       
       {loading ? (
         <div className="p-4 space-y-4">
-          {[1,2,3,4].map(i => <div key={i} className="h-28 bg-zinc-900 rounded-2xl animate-pulse" />)}
+          {[1,2,3,4,5].map(i => <div key={i} className="h-24 bg-zinc-900 rounded-2xl animate-pulse" />)}
         </div>
       ) : hasData ? (
         <div className="p-4 space-y-4 pb-20">
           
-          {/* === БЛОК 1: СТАТУС === */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Progress Index */}
-            <Card className="p-4">
-              <div className="text-xs text-zinc-500 mb-2">ПРОГРЕСС</div>
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-lg ${analytics?.status?.progressIndex === 'up' ? 'bg-green-500/20' : analytics?.status?.progressIndex === 'down' ? 'bg-red-500/20' : 'bg-zinc-800'}`}>
-                  <span className={getProgressColor(analytics?.status?.progressIndex || 'stable')}>
-                    {getProgressIcon(analytics?.status?.progressIndex || 'stable')}
-                  </span>
-                </div>
-                <div>
-                  <div className={`text-lg font-bold ${getProgressColor(analytics?.status?.progressIndex || 'stable')}`}>
-                    {analytics?.status?.progressIndex === 'up' ? 'Растёт' : 
-                     analytics?.status?.progressIndex === 'down' ? 'Падает' : 'Стабильно'}
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {analytics?.status?.avgE1rmTrend > 0 ? '+' : ''}{analytics?.status?.avgE1rmTrend}% e1RM
-                  </div>
-                </div>
-              </div>
-            </Card>
-            
-            {/* Fatigue Index */}
-            <Card className="p-4">
-              <div className="text-xs text-zinc-500 mb-2">УСТАЛОСТЬ</div>
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-lg ${getFatigueBg(analytics?.status?.fatigueIndex || 'ok')}`}>
-                  <Activity className={`w-5 h-5 ${getFatigueColor(analytics?.status?.fatigueIndex || 'ok')}`} />
-                </div>
-                <div>
-                  <div className={`text-lg font-bold ${getFatigueColor(analytics?.status?.fatigueIndex || 'ok')}`}>
-                    {analytics?.status?.fatigueIndex === 'low' ? 'Низкая' : 
-                     analytics?.status?.fatigueIndex === 'high' ? 'Высокая' : 'Норма'}
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {analytics?.meta?.hardSets7d} hard sets/7д
-                  </div>
-                </div>
-              </div>
-            </Card>
+          {/* Показатели рассчитаны за период */}
+          <div className="text-center text-xs text-zinc-500 py-1">
+            Показатели рассчитаны за последние {period} дней
           </div>
 
-          {/* === БЛОК 2: РЕКОМЕНДАЦИИ === */}
-          {analytics?.recommendations && analytics.recommendations.length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Lightbulb className="w-5 h-5 text-yellow-500" />
-                <h3 className="font-semibold text-zinc-200">Что делать</h3>
+          {/* ① STRENGTH TREND */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-500" />
+                <h3 className="font-semibold text-zinc-200">Strength Trend</h3>
               </div>
-              <div className="space-y-2">
-                {analytics.recommendations.map((rec, i) => (
-                  <div key={i} className={`p-3 rounded-lg border-l-4 ${getPriorityColor(rec.priority)}`}>
-                    <div className="text-sm text-zinc-300">{rec.message}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-[10px] uppercase font-medium ${
-                        rec.priority === 'high' ? 'text-red-400' : 
-                        rec.priority === 'medium' ? 'text-yellow-400' : 'text-blue-400'
-                      }`}>
-                        {rec.priority === 'high' ? 'Важно' : rec.priority === 'medium' ? 'Рекомендация' : 'Совет'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+              <Tooltip text={analytics?.strengthTrend?.tooltip || ''}>
+                <Info className="w-4 h-4" />
+              </Tooltip>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className={`text-4xl font-bold ${getSTColor(analytics?.strengthTrend?.direction || 'stable')}`}>
+                {analytics?.strengthTrend?.direction === 'up' ? '↑' : 
+                 analytics?.strengthTrend?.direction === 'down' ? '↓' : '→'}
+                {' '}
+                {analytics?.strengthTrend?.value > 0 ? '+' : ''}
+                {analytics?.strengthTrend?.value}%
               </div>
-            </Card>
-          )}
+              <div className="text-xs text-zinc-500">
+                <div>Текущий: {analytics?.strengthTrend?.medianCurrent} кг</div>
+                <div>Предыдущий: {analytics?.strengthTrend?.medianPrevious} кг</div>
+              </div>
+            </div>
+            {anchorIds.length === 0 && (
+              <div className="mt-3 text-xs text-yellow-500/80 bg-yellow-500/10 p-2 rounded">
+                Выбери 2-4 якорных упражнения для точного расчёта
+              </div>
+            )}
+          </Card>
 
-          {/* === БЛОК 3: БАЛАНС ПО СТИМУЛУ === */}
-          {analytics?.muscleBalance?.stimulus && Object.keys(analytics.muscleBalance.stimulus).length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Target className="w-5 h-5 text-blue-500" />
-                <h3 className="font-semibold text-zinc-200">Баланс стимула</h3>
-                <span className="text-[10px] text-zinc-500 ml-auto">по hard sets</span>
+          {/* ② STIMULUS VOLUME */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-purple-500" />
+                <h3 className="font-semibold text-zinc-200">Stimulus Volume</h3>
               </div>
-              
-              {/* Stacked bar */}
-              <div className="h-6 rounded-full overflow-hidden flex mb-3 bg-zinc-800">
-                {(analytics.muscleBalance.stimulus.push || 0) > 0 && (
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${analytics.muscleBalance.stimulus.push}%` }}
-                    className="bg-blue-500 h-full"
-                  />
-                )}
-                {(analytics.muscleBalance.stimulus.pull || 0) > 0 && (
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${analytics.muscleBalance.stimulus.pull}%` }}
-                    transition={{ delay: 0.1 }}
-                    className="bg-green-500 h-full"
-                  />
-                )}
-                {(analytics.muscleBalance.stimulus.legs || 0) > 0 && (
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${analytics.muscleBalance.stimulus.legs}%` }}
-                    transition={{ delay: 0.2 }}
-                    className="bg-purple-500 h-full"
-                  />
-                )}
+              <Tooltip text={analytics?.stimulusVolume?.tooltip || ''}>
+                <Info className="w-4 h-4" />
+              </Tooltip>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-zinc-100">
+                {analytics?.stimulusVolume?.value}
               </div>
-              
-              {/* Детали с целевыми диапазонами */}
-              <div className="space-y-2">
-                {(['push', 'pull', 'legs'] as const).map(cat => {
-                  const value = analytics.muscleBalance.stimulus[cat] || 0;
-                  const status = analytics.muscleBalance.status[cat];
-                  const range = analytics.muscleBalance.targetRanges[cat];
-                  const color = cat === 'push' ? 'blue' : cat === 'pull' ? 'green' : 'purple';
-                  
-                  return (
-                    <div key={cat} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded bg-${color}-500`} />
-                        <span className="text-zinc-400 capitalize">{cat}</span>
-                        {getBalanceStatusIcon(status)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-zinc-200">{value}%</span>
-                        {range && (
-                          <span className="text-[10px] text-zinc-500">
-                            цель: {range[0]}-{range[1]}%
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                analytics?.stimulusVolume?.status === 'low' ? 'bg-blue-500/20 text-blue-400' :
+                analytics?.stimulusVolume?.status === 'high' ? 'bg-red-500/20 text-red-400' :
+                'bg-green-500/20 text-green-400'
+              }`}>
+                {analytics?.stimulusVolume?.status === 'low' ? 'Низкий' :
+                 analytics?.stimulusVolume?.status === 'high' ? 'Высокий' : 'Норма'}
               </div>
-            </Card>
-          )}
+            </div>
+            <div className="text-xs text-zinc-500 mt-2">
+              {analytics?.stimulusVolume?.hardSetsCount} hard sets за период
+            </div>
+          </Card>
 
-          {/* === БЛОК 4: СИММЕТРИЯ АНТАГОНИСТОВ === */}
-          {analytics?.muscleBalance?.symmetry && analytics.muscleBalance.symmetry.length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Scale className="w-5 h-5 text-purple-500" />
-                <h3 className="font-semibold text-zinc-200">Симметрия</h3>
+          {/* ③ FATIGUE ACCUMULATION */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-orange-500" />
+                <h3 className="font-semibold text-zinc-200">Fatigue Accumulation</h3>
               </div>
-              <div className="space-y-2">
-                {analytics.muscleBalance.symmetry.map((sym, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm py-1">
-                    <span className="text-zinc-400">{sym.pair}</span>
-                    <div className="flex items-center gap-2">
-                      <span className={`font-mono ${sym.isBalanced ? 'text-green-500' : 'text-yellow-500'}`}>
-                        {typeof sym.ratio === 'number' ? sym.ratio.toFixed(1) : sym.ratio}
-                      </span>
-                      {sym.isBalanced ? (
-                        <Check className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <Tooltip text={analytics?.fatigueAccumulation?.tooltip || ''}>
+                <Info className="w-4 h-4" />
+              </Tooltip>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className={`text-3xl font-bold ${getStatusColor(analytics?.fatigueAccumulation?.status || 'moderate')}`}>
+                {analytics?.fatigueAccumulation?.value}
               </div>
-              <div className="mt-2 text-[10px] text-zinc-500">
-                Норма: 0.6 — 1.6
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                analytics?.fatigueAccumulation?.status === 'low' ? 'bg-blue-500/20 text-blue-400' :
+                analytics?.fatigueAccumulation?.status === 'high' ? 'bg-red-500/20 text-red-400' :
+                'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {analytics?.fatigueAccumulation?.status === 'low' ? 'Низкая' :
+                 analytics?.fatigueAccumulation?.status === 'high' ? 'Высокая' : 'Умеренная'}
               </div>
-            </Card>
-          )}
+            </div>
+            <div className="text-xs text-zinc-500 mt-2">
+              SV за 7 дней: {analytics?.fatigueAccumulation?.sv7d}
+            </div>
+          </Card>
 
-          {/* === БЛОК 5: ПЛАТО ПО ПАТТЕРНАМ === */}
-          {analytics?.patterns && Object.keys(analytics.patterns).length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="w-5 h-5 text-orange-500" />
-                <h3 className="font-semibold text-zinc-200">Тренды по паттернам</h3>
+          {/* ④ EFFICIENCY INDEX — ГЛАВНЫЙ KPI */}
+          <Card className="p-4 bg-gradient-to-br from-zinc-900 to-zinc-800 border-2 border-zinc-700">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Scale className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold text-zinc-200">Efficiency Index</h3>
+                <span className="text-[10px] bg-yellow-500/20 text-yellow-500 px-2 py-0.5 rounded">KPI</span>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {Object.entries(analytics.patterns).map(([cat, data]) => (
-                  <div key={cat} className={`p-3 rounded-lg text-center ${data.isPlateau ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-zinc-800/50'}`}>
-                    <div className="text-xs text-zinc-500 uppercase mb-1">{cat}</div>
-                    <div className={`text-lg font-bold ${
-                      data.avgTrend > 0 ? 'text-green-500' : 
-                      data.avgTrend < 0 ? 'text-red-500' : 'text-zinc-400'
-                    }`}>
-                      {data.avgTrend > 0 ? '+' : ''}{data.avgTrend}%
-                    </div>
-                    {data.isPlateau && (
-                      <div className="text-[10px] text-yellow-500 mt-1">ПЛАТО</div>
-                    )}
-                  </div>
-                ))}
+              <Tooltip text={analytics?.efficiencyIndex?.tooltip || ''}>
+                <Info className="w-4 h-4" />
+              </Tooltip>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className={`text-4xl font-bold ${getEIColor(analytics?.efficiencyIndex?.direction || 'neutral')}`}>
+                {analytics?.efficiencyIndex?.value > 0 ? '+' : ''}
+                {analytics?.efficiencyIndex?.value}
               </div>
-            </Card>
-          )}
+              <div className={`text-sm ${getEIColor(analytics?.efficiencyIndex?.direction || 'neutral')}`}>
+                {analytics?.efficiencyIndex?.direction === 'positive' ? 'Эффективно — мало усилий, много результата' :
+                 analytics?.efficiencyIndex?.direction === 'negative' ? 'Неэффективно — много усилий, мало результата' :
+                 'Нейтрально'}
+              </div>
+            </div>
+          </Card>
 
-          {/* === БЛОК 6: НЕЭФФЕКТИВНЫЕ УПРАЖНЕНИЯ === */}
-          {analytics?.inefficiencies && analytics.inefficiencies.length > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-                <h3 className="font-semibold text-zinc-200">Низкая отдача</h3>
+          {/* ⑤ CONSISTENCY */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-green-500" />
+                <h3 className="font-semibold text-zinc-200">Consistency</h3>
               </div>
-              <div className="space-y-2">
-                {analytics.inefficiencies.map((ex, i) => (
-                  <div key={i} className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium text-zinc-200">{ex.name}</div>
-                        <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-sm font-bold ${ex.e1rmTrend >= 0 ? 'text-zinc-400' : 'text-red-500'}`}>
-                          {ex.e1rmTrend > 0 ? '+' : ''}{ex.e1rmTrend}%
-                        </div>
-                        <div className="text-[10px] text-zinc-500">
-                          {Math.round(ex.volume21d / 1000)}k объём
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <Tooltip text={analytics?.consistency?.tooltip || ''}>
+                <Info className="w-4 h-4" />
+              </Tooltip>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-zinc-100">
+                {Math.round((analytics?.consistency?.value || 0) * 100)}%
               </div>
-              <div className="mt-2 text-[10px] text-zinc-500">
-                Много объёма, мало прогресса — замени или снизь частоту
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                analytics?.consistency?.status === 'stable' 
+                  ? 'bg-green-500/20 text-green-400' 
+                  : 'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {analytics?.consistency?.status === 'stable' ? 'Стабильно' : 'Нестабильно'}
               </div>
-            </Card>
-          )}
+            </div>
+            <div className="text-xs text-zinc-500 mt-2">
+              Анализ за {analytics?.consistency?.weeksAnalyzed} недель
+            </div>
+          </Card>
 
-          {/* === ДЕТАЛИ (скрыто по умолчанию) === */}
-          <button 
-            onClick={() => setShowDetails(!showDetails)}
-            className="w-full p-3 text-sm text-zinc-500 hover:text-zinc-300 flex items-center justify-center gap-2"
-          >
-            {showDetails ? 'Скрыть детали' : 'Показать детали'}
-            <ChevronDown className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
-          </button>
-
-          {showDetails && analytics?.exerciseStats && (
-            <Card className="p-4">
-              <h3 className="font-semibold text-zinc-200 mb-3">Все упражнения</h3>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {Object.entries(analytics.exerciseStats)
-                  .sort((a, b) => (b[1].currentE1RM || 0) - (a[1].currentE1RM || 0))
-                  .map(([id, ex]: [string, any]) => (
-                    <div key={id} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-zinc-200 truncate">{ex.name}</div>
-                        <div className="text-xs text-zinc-500">{ex.muscleGroup}</div>
-                      </div>
-                      <div className="text-right ml-2">
-                        <div className="text-sm font-bold text-zinc-100">{ex.currentE1RM} кг</div>
-                        <div className={`text-xs ${ex.e1rmTrend > 0 ? 'text-green-500' : ex.e1rmTrend < 0 ? 'text-red-500' : 'text-zinc-500'}`}>
-                          {ex.e1rmTrend > 0 ? '+' : ''}{ex.e1rmTrend}%
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </Card>
-          )}
-
-          {/* Мета-инфо */}
+          {/* Meta info */}
           <div className="text-center text-xs text-zinc-600 py-4">
-            {analytics?.meta?.totalSets} подходов • 
-            {analytics?.meta?.hardSets7d} hard sets за 7 дней • 
-            {Math.round((analytics?.meta?.avgIntensity7d || 0) * 100)}% средняя интенсивность
+            {analytics?.meta?.totalSets} подходов всего • 
+            {analytics?.meta?.setsInPeriod} за период • 
+            {analytics?.meta?.hardSetsInPeriod} hard sets
+            <div className="mt-1 text-zinc-700">
+              {analytics?.meta?.formula}
+            </div>
           </div>
         </div>
       ) : (
@@ -1426,6 +1381,40 @@ const AnalyticsScreen = ({ onBack }: any) => {
           <p className="text-sm mt-2">Начни тренироваться!</p>
         </div>
       )}
+
+      {/* Anchor Selection Modal */}
+      <Modal isOpen={showAnchorModal} onClose={() => setShowAnchorModal(false)} title="Якорные упражнения">
+        <div className="space-y-2">
+          <p className="text-sm text-zinc-400 mb-4">
+            Выбери 2-4 базовых упражнения для расчёта Strength Trend. 
+            Рекомендуется: жим лёжа, приседания, становая, подтягивания.
+          </p>
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {analytics?.exercises?.map(ex => (
+              <button
+                key={ex.id}
+                onClick={() => toggleAnchor(ex.id)}
+                className={`w-full p-3 rounded-lg flex items-center justify-between transition-colors ${
+                  anchorIds.includes(ex.id) 
+                    ? 'bg-blue-500/20 border border-blue-500/50' 
+                    : 'bg-zinc-800 hover:bg-zinc-700'
+                }`}
+              >
+                <div className="text-left">
+                  <div className="text-sm font-medium text-zinc-200">{ex.name}</div>
+                  <div className="text-xs text-zinc-500">{ex.muscleGroup} • {ex.bestE1RM} кг</div>
+                </div>
+                {anchorIds.includes(ex.id) && (
+                  <Check className="w-5 h-5 text-blue-500" />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="pt-4 text-xs text-zinc-500">
+            Выбрано: {anchorIds.length}/4
+          </div>
+        </div>
+      </Modal>
     </motion.div>
   );
 };
