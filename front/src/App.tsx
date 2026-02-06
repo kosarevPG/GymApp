@@ -34,6 +34,7 @@ interface Exercise {
   imageUrl?: string;
   imageUrl2?: string;
   equipmentType?: string;
+  weightType?: string;
 }
 
 interface WorkoutSet {
@@ -456,8 +457,8 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, equipmentType, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
-  const weightType = getWeightInputType(equipmentType);
+const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
+  const weightType = getWeightInputType(equipmentType, weightTypeFromRef);
   const formula = WEIGHT_FORMULAS[weightType];
   const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType);
   const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
@@ -593,14 +594,14 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       <HistoryListModal isOpen={showHistoryModal} onClose={() => setShowHistoryModal(false)} history={exerciseData.history} exerciseName={exerciseData.exercise.name} />
       <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 mb-2 px-1">
         <div className="w-10" />
-        <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">{WEIGHT_FORMULAS[getWeightInputType(exerciseData.exercise.equipmentType)].label}</div>
+        <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">{WEIGHT_FORMULAS[getWeightInputType(exerciseData.exercise.equipmentType, exerciseData.exercise.weightType)].label}</div>
         <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">ПОВТ</div>
         <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">МИН</div>
         <div className="w-8" />
       </div>
       <div className="space-y-1">
         {exerciseData.sets.map((set: any) => (
-          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
+          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} weightType={exerciseData.exercise.weightType} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -875,6 +876,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     rest: string;
     rowNumber?: number;
     equipmentType?: string;
+    weightType?: string;
   } | null>(null);
   
   useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
@@ -884,8 +886,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     if (!set || set.completed) return;
     if (!set.weight || !set.reps) { notify('error'); return; }
     
-    const equipmentType = sessionData[exId].exercise?.equipmentType;
-    const weightType = getWeightInputType(equipmentType);
+    const exercise = sessionData[exId].exercise;
+    const weightType = getWeightInputType(exercise?.equipmentType, exercise?.weightType);
     const inputWeight = parseFloat(set.weight);
     const effectiveWeight = calcEffectiveWeight(set.weight, weightType) ?? inputWeight;
     
@@ -939,7 +941,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           reps: set.reps,
           rest: set.rest,
           rowNumber: set.rowNumber,
-          equipmentType: exercise?.equipmentType
+          equipmentType: exercise?.equipmentType,
+          weightType: exercise?.weightType
         };
         
         // Очищаем предыдущий таймер и запускаем новый
@@ -952,7 +955,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           console.log('Sending update with row_number:', data.rowNumber);
           
           try {
-            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType)) ?? (parseFloat(data.weight) || 0);
+            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType)) ?? (parseFloat(data.weight) || 0);
             const result = await api.updateSet({
               row_number: data.rowNumber,
               exercise_id: data.exId,

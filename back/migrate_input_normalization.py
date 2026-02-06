@@ -43,7 +43,8 @@ def main():
             if eq == 'barbell':
                 t, base, mult = 'Barbell', 20, 2
             elif eq == 'machine':
-                t, base, mult = 'Plate_Loaded', 50, 2  # по умолчанию
+                # По умолчанию Plate_Loaded (жим ногами). Ручная правка на Machine для блочных.
+                t, base, mult = 'Plate_Loaded', 50, 2
             elif 'assist' in (name or '').lower() or 'гравитрон' in (name or '').lower():
                 t, base, mult = 'Assisted', 0, 1
             else:
@@ -104,7 +105,8 @@ def formula_for_h2():
         'base_wt,IFERROR(VLOOKUP(ex_id,REF_Exercises!A:E,4,FALSE),0),'
         'user_wt,IFERROR(VLOOKUP(dt,SORT(REF_Bio!A:B,1,TRUE),2,TRUE),90),'
         'SWITCH(ex_type,"Barbell",(input_wt*2)+base_wt,"Plate_Loaded",(input_wt*2)+base_wt,'
-        '"Assisted",MAX(0,user_wt-input_wt),"Bodyweight",user_wt+input_wt,input_wt)'
+        '"Assisted",MAX(0,user_wt-input_wt),"Bodyweight",user_wt+input_wt,'
+        '"Machine",input_wt,"Dumbbell",input_wt,input_wt)'
         '),""))'
     )
 

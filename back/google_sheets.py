@@ -113,6 +113,24 @@ class GoogleSheetsManager:
         self._log_cache_timestamp = None
         logger.debug("LOG cache invalidated")
     
+    def _get_ref_exercises_map(self) -> Dict[str, str]:
+        """Читает REF_Exercises и возвращает ex_id -> Type (Barbell, Dumbbell, Machine, Plate_Loaded, Assisted, Bodyweight)"""
+        try:
+            ref_ex = self.spreadsheet.worksheet('REF_Exercises')
+            rows = ref_ex.get_all_values()
+            if len(rows) < 2:
+                return {}
+            result = {}
+            for row in rows[1:]:
+                if len(row) >= 3:
+                    ex_id = str(row[0]).strip()
+                    t = str(row[2]).strip()
+                    if ex_id and t:
+                        result[ex_id] = t
+            return result
+        except Exception:
+            return {}
+
     def _get_baseline_sheet(self):
         """Получить лист BASELINE, создать если не существует"""
         if self._baseline_sheet is None:
@@ -171,6 +189,7 @@ class GoogleSheetsManager:
             if records:
                 logger.info(f"Column headers in EXERCISES sheet: {list(records[0].keys())}")
             
+            ref_types = self._get_ref_exercises_map()
             for r in records:
                 # Робастный поиск полей
                 id_val = self._find_key_case_insensitive(r, ['ID', 'id'])
@@ -193,6 +212,9 @@ class GoogleSheetsManager:
                 if not ex_type or ex_type not in ('compound', 'isolation'):
                     ex_type = self._infer_exercise_type(name_val or '')
                 
+                # weightType из REF_Exercises (Barbell, Dumbbell, Machine, Plate_Loaded, Assisted, Bodyweight)
+                weight_type = ref_types.get(id_val, '') if id_val else ''
+                
                 exercises.append({
                     'id': id_val,
                     'name': name_val,
@@ -201,7 +223,8 @@ class GoogleSheetsManager:
                     'imageUrl': image_url,
                     'imageUrl2': image_url2,
                     'equipmentType': equipment or 'barbell',
-                    'exerciseType': ex_type or 'compound'
+                    'exerciseType': ex_type or 'compound',
+                    'weightType': weight_type
                 })
             
             # Сортируем упражнения по имени (Name)
