@@ -478,17 +478,24 @@ const SetRow = ({ set, equipmentType, onUpdate, onDelete, onComplete, onToggleEd
         <input 
           type="number" 
           inputMode="decimal" 
+          min="0"
+          step="0.5"
           placeholder={formula.placeholder} 
           value={set.weight} 
-          onChange={e => onUpdate(set.id, 'weight', e.target.value)}
+          onChange={e => {
+            const v = e.target.value;
+            if (v === '') { onUpdate(set.id, 'weight', v); return; }
+            const num = parseFloat(v);
+            if (!isNaN(num) && num >= 0) onUpdate(set.id, 'weight', v);
+          }}
           onFocus={e => e.target.select()}
           className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
         />
-        <div className="flex justify-between px-1 text-[10px] flex-wrap gap-x-2">
-          {showTotalBadge && effectiveWeight !== null && (
+        <div className="flex justify-between items-center px-1 text-[10px] flex-wrap gap-x-2 gap-y-0.5">
+          {showTotalBadge && effectiveWeight !== null && effectiveWeight >= 0 && (
             <span className="text-blue-400 font-medium">Итого: {effectiveWeight} кг</span>
           )}
-          {oneRM > 0 && <span className="text-zinc-500">1PM:{oneRM}</span>}
+          {oneRM > 0 && <span className="text-zinc-500">1PM: {oneRM}</span>}
           {set.prevWeight !== undefined && displayWeight > 0 && <span className={`${deltaColor} font-medium`}>{deltaText}</span>}
         </div>
       </div>
