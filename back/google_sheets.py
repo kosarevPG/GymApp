@@ -353,7 +353,7 @@ class GoogleSheetsManager:
                 rir_cell,
                 input_weight_cell
             ]
-            result = self.log_sheet.append_row(row)
+            result = self.log_sheet.append_row(row, table_range='A1')
             self._invalidate_log_cache()
             
             # Извлекаем номер строки и пишем Total_Weight (M)
