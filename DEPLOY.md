@@ -67,13 +67,21 @@ git push -u origin main
 6. Дождитесь деплоя (3-5 минут)
 7. Скопируйте URL фронтенда (например: `https://gymapp-frontend.onrender.com`)
 
-### 5. Обновление настроек
+### 5. Автодеплой бэкенда (опционально)
+
+При пуше в `back/**` бэкенд автоматически перезапускается на Render.
+
+1. В Render: **Settings** → **Deploy Hook** → скопируйте URL
+2. В GitHub: **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+3. Имя: `RENDER_DEPLOY_HOOK`, значение: URL из шага 1
+
+### 6. Обновление настроек
 
 1. Вернитесь в настройки бэкенда
 2. Обновите `WEBAPP_URL` на URL вашего фронтенда
 3. Сохраните (Render автоматически перезапустит)
 
-### 6. Настройка Telegram бота
+### 7. Настройка Telegram бота
 
 1. Откройте @BotFather в Telegram
 2. Отправьте `/mybots`
