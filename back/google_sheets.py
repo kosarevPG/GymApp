@@ -903,7 +903,7 @@ class GoogleSheetsManager:
             
             # ========== Stability Gate ==========
             days_since_baseline_change = 999  # TODO: from BASELINE sheet
-            stability_gate = fs_value >= 0.75 and max_gap <= 7 and days_since_baseline_change >= 21
+            stability_gate = fs_value >= 0.6 and max_gap <= 45 and days_since_baseline_change >= 7
             
             # ========== Proposals ==========
             proposals = self._get_pending_proposals()

@@ -1232,7 +1232,7 @@ const AnalyticsScreen = ({ onBack }: any) => {
               </span>
             </div>
             <div className="text-xs text-zinc-500 mt-1">
-              {analytics.stabilityGate ? 'Готов к росту' : 'FS ≥ 0.75, MG ≤ 7, 21 день с последнего изменения'}
+              {analytics.stabilityGate ? 'Готов к росту' : 'FS ≥ 0.6, MG ≤ 45, 7 дней с последнего изменения'}
             </div>
           </Card>
 
