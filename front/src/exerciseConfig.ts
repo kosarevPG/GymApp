@@ -6,8 +6,10 @@
 export type WeightInputType = 'barbell' | 'plate_loaded' | 'assisted' | 'dumbbell' | 'standard';
 
 export interface WeightFormula {
-  /** Подсказка для поля ввода (напр. "Блин с одной стороны") */
+  /** Подсказка для поля ввода */
   placeholder: string;
+  /** Метка колонки (напр. "×1 блин", "кг") */
+  label: string;
   /** Вычисляет effectiveWeight из inputWeight */
   toEffective: (input: number, userBodyWeight?: number) => number;
   /** Вычисляет inputWeight из effectiveWeight (для отображения при загрузке старых данных) */
@@ -18,27 +20,32 @@ const USER_BODY_WEIGHT_DEFAULT = 90; // TODO: из профиля пользов
 
 export const WEIGHT_FORMULAS: Record<WeightInputType, WeightFormula> = {
   barbell: {
-    placeholder: 'Блин с одной стороны',
+    placeholder: '0',
+    label: '×1 блин',
     toEffective: (input) => input * 2 + 20, // 20 кг гриф
     toInput: (effective) => Math.round((effective - 20) / 2),
   },
   plate_loaded: {
-    placeholder: 'Блин с одной стороны',
+    placeholder: '0',
+    label: '×1 блин',
     toEffective: (input) => input * 2 + 50, // 50 кг каретка
     toInput: (effective) => Math.round((effective - 50) / 2),
   },
   assisted: {
-    placeholder: 'Помощь (кг)',
+    placeholder: '0',
+    label: 'Помощь',
     toEffective: (input, bw = USER_BODY_WEIGHT_DEFAULT) => Math.max(0, bw - input),
     toInput: (effective, bw = USER_BODY_WEIGHT_DEFAULT) => Math.round(bw - effective),
   },
   dumbbell: {
-    placeholder: 'Кг',
+    placeholder: '0',
+    label: 'кг',
     toEffective: (input) => input,
     toInput: (effective) => effective,
   },
   standard: {
-    placeholder: 'Кг',
+    placeholder: '0',
+    label: 'кг',
     toEffective: (input) => input,
     toInput: (effective) => effective,
   },

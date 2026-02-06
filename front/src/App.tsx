@@ -591,7 +591,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       <HistoryListModal isOpen={showHistoryModal} onClose={() => setShowHistoryModal(false)} history={exerciseData.history} exerciseName={exerciseData.exercise.name} />
       <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 mb-2 px-1">
         <div className="w-10" />
-        <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">КГ</div>
+        <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">{WEIGHT_FORMULAS[getWeightInputType(exerciseData.exercise.equipmentType)].label}</div>
         <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">ПОВТ</div>
         <div className="text-[10px] text-center text-zinc-500 font-bold uppercase">МИН</div>
         <div className="w-8" />
