@@ -77,19 +77,41 @@ def main():
     # 5. Добавляем формулу в LOG (колонка L = 12, Input_Weight в K = 11)
     log = gs.log_sheet
     try:
-        # Проверяем, есть ли уже заголовок в L1
         l1 = log.cell(1, 12).value
         if not l1 or l1.strip() == '':
             log.update_cell(1, 12, 'Effective_Load_Kg')
-        # Формула для L2 (и протягиваем до 1000 строк)
         formula = formula_for_h2()
         log.update_acell('L2', formula)
-        print("\nФормула добавлена в L2. Протяните вниз (L2 - выделить - перетащить за угол).")
+        print("\nФормула добавлена в L2. Протяните вниз.")
     except Exception as e:
-        print(f"\nНе удалось добавить формулу автоматически: {e}")
-        print("Вставьте вручную в L2:")
-        print(formula_for_h2())
-    
+        print(f"\nНе удалось добавить формулу: {e}")
+
+    # 6. Total_Weight (M = 13) — нормализованный вес для аналитики и рекордов
+    try:
+        m1 = log.cell(1, 13).value
+        if not m1 or m1.strip() == '':
+            log.update_cell(1, 13, 'Total_Weight')
+            print("Заголовок Total_Weight добавлен в M1.")
+        # Бэкфилл: копируем Weight (D) в Total_Weight (M) батчем
+        all_vals = log.get_all_values()
+        if len(all_vals) >= 2:
+            m_col = []
+            for i in range(1, min(len(all_vals), 1000)):
+                row = all_vals[i]
+                if len(row) >= 4 and row[3]:
+                    try:
+                        w = float(str(row[3]).replace(',', '.'))
+                        m_col.append([w] if w > 0 else [''])
+                    except (ValueError, TypeError):
+                        m_col.append([''])
+                else:
+                    m_col.append([''])
+            if m_col:
+                log.update(f'M2:M{1 + len(m_col)}', m_col, value_input_option='USER_ENTERED')
+                print(f"Total_Weight: заполнено {len(m_col)} строк из Weight.")
+    except Exception as e:
+        print(f"Total_Weight: {e}")
+
     print("\n--- РУЧНАЯ НАСТРОЙКА ---")
     print("1. REF_Exercises: при необходимости измените Type, Base_Wt для упражнений.")
     print("2. REF_Bio: добавьте даты и вес тела для Assisted упражнений.")
