@@ -5,6 +5,14 @@ import {
   ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
   History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, AlertTriangle
 } from 'lucide-react';
+import { getWeightInputType, calcEffectiveWeight, WEIGHT_FORMULAS } from './exerciseConfig';
+
+function weightForInputDisplay(effective: number, equipmentType?: string): string {
+  const type = getWeightInputType(equipmentType);
+  const formula = WEIGHT_FORMULAS[type];
+  const input = formula.toInput?.(effective) ?? effective;
+  return String(Math.round(input * 10) / 10);
+}
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- CONFIG ---
@@ -23,6 +31,7 @@ interface Exercise {
   description?: string;
   imageUrl?: string;
   imageUrl2?: string;
+  equipmentType?: string;
 }
 
 interface WorkoutSet {
@@ -35,7 +44,8 @@ interface WorkoutSet {
   order?: number;
   setGroupId?: string;
   isEditing?: boolean;
-  rowNumber?: number;  // Номер строки в Google Sheets для update
+  rowNumber?: number;
+  effectiveWeight?: number;  // Итоговый вес для аналитики (input * 2 + гриф и т.д.)
 }
 
 interface HistoryItem {
@@ -444,15 +454,19 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
-  const oneRM = set.weight && set.reps ? Math.round(parseFloat(set.weight) * (1 + parseInt(set.reps) / 30)) : 0;
-  const delta = set.prevWeight ? (parseFloat(set.weight) - set.prevWeight) : 0;
+const SetRow = ({ set, equipmentType, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
+  const weightType = getWeightInputType(equipmentType);
+  const formula = WEIGHT_FORMULAS[weightType];
+  const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType);
+  const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
+  const oneRM = displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
+  const delta = set.prevWeight ? (displayWeight - set.prevWeight) : 0;
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
   const deltaColor = delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-zinc-500';
   const isCompleted = set.completed;
   const isEditing = set.isEditing;
-  // Для выполненных подходов: поля disabled если НЕ в режиме редактирования
   const inputDisabledClass = isCompleted && !isEditing ? 'opacity-50 pointer-events-none' : '';
+  const showTotalBadge = effectiveWeight !== null && effectiveWeight !== parseFloat(set.weight || '0');
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-start mb-3">
@@ -464,18 +478,19 @@ const SetRow = ({ set, onUpdate, onDelete, onComplete, onToggleEdit }: { set: an
         <input 
           type="number" 
           inputMode="decimal" 
-          placeholder="0" 
+          placeholder={formula.placeholder} 
           value={set.weight} 
           onChange={e => onUpdate(set.id, 'weight', e.target.value)}
           onFocus={e => e.target.select()}
           className="w-full h-12 bg-zinc-800 rounded-xl text-center text-xl font-bold text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none tabular-nums" 
         />
-        {(oneRM > 0 || set.prevWeight) && (
-          <div className="flex justify-between px-1 text-[10px]">
-            {oneRM > 0 && <span className="text-zinc-500">1PM:{oneRM}</span>}
-            {set.prevWeight !== undefined && <span className={`${deltaColor} font-medium`}>{deltaText}</span>}
-          </div>
-        )}
+        <div className="flex justify-between px-1 text-[10px] flex-wrap gap-x-2">
+          {showTotalBadge && effectiveWeight !== null && (
+            <span className="text-blue-400 font-medium">Итого: {effectiveWeight} кг</span>
+          )}
+          {oneRM > 0 && <span className="text-zinc-500">1PM:{oneRM}</span>}
+          {set.prevWeight !== undefined && displayWeight > 0 && <span className={`${deltaColor} font-medium`}>{deltaText}</span>}
+        </div>
       </div>
       <input 
         type="tel" 
@@ -536,11 +551,11 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
     return maxWeight;
   }, [exerciseData.history]);
   
-  // Максимальный вес в текущей сессии (из выполненных подходов)
+  // Максимальный вес в текущей сессии (effective для PR)
   const sessionMax = useMemo(() => {
-    const completedSets = exerciseData.sets.filter((s: any) => s.completed && s.weight);
+    const completedSets = exerciseData.sets.filter((s: any) => s.completed && (s.weight || s.effectiveWeight));
     if (!completedSets.length) return 0;
-    return Math.max(...completedSets.map((s: any) => parseFloat(s.weight) || 0));
+    return Math.max(...completedSets.map((s: any) => s.effectiveWeight ?? (parseFloat(s.weight) || 0)));
   }, [exerciseData.sets]);
   
   // Проверяем побит ли PR в текущей сессии
@@ -576,7 +591,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       </div>
       <div className="space-y-1">
         {exerciseData.sets.map((set: any) => (
-          <SetRow key={set.id} set={set} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
+          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -800,12 +815,14 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             
             if (lastDate) {
                 // Если это суперсет, находим подходы текущего упражнения
+                const exercise = allExercises.find((e: Exercise) => e.id === exId);
+                const eqType = exercise?.equipmentType;
                 if (firstGroup.isSuperset && firstGroup.exercises) {
                     const currentExercise = firstGroup.exercises.find((ex: any) => ex.exerciseId === exId);
                     if (currentExercise && currentExercise.sets) {
                         initialSets = currentExercise.sets.map((s: any) => ({
                             id: crypto.randomUUID(), 
-                            weight: s.weight.toString(), 
+                            weight: weightForInputDisplay(s.weight, eqType),
                             reps: s.reps.toString(), 
                             rest: s.rest.toString(), 
                             completed: false, 
@@ -813,10 +830,9 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
                         }));
                     }
                 } else if (firstGroup.sets) {
-                    // Обычные подходы (не в суперсете)
                     initialSets = firstGroup.sets.map((s: any) => ({
                         id: crypto.randomUUID(), 
-                        weight: s.weight.toString(), 
+                        weight: weightForInputDisplay(s.weight, eqType),
                         reps: s.reps.toString(), 
                         rest: s.rest.toString(), 
                         completed: false, 
@@ -851,6 +867,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     reps: string;
     rest: string;
     rowNumber?: number;
+    equipmentType?: string;
   } | null>(null);
   
   useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
@@ -860,17 +877,21 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     if (!set || set.completed) return;
     if (!set.weight || !set.reps) { notify('error'); return; }
     
+    const equipmentType = sessionData[exId].exercise?.equipmentType;
+    const weightType = getWeightInputType(equipmentType);
+    const inputWeight = parseFloat(set.weight);
+    const effectiveWeight = calcEffectiveWeight(set.weight, weightType) ?? inputWeight;
+    
     haptic('medium');
     const order = incrementOrder();
-    // Optimistic - сохраняем order и setGroupId для возможности редактирования
-    setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true, order, setGroupId: localGroupId } : s) } }));
-    // Сбрасываем таймер и сразу запускаем заново (кнопка останется "Стоп")
+    setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true, order, setGroupId: localGroupId, effectiveWeight } : s) } }));
     timer.resetAndStart();
 
     try {
         const result = await api.saveSet({
             exercise_id: exId,
-            weight: parseFloat(set.weight),
+            weight: effectiveWeight,
+            input_weight: inputWeight,
             reps: parseInt(set.reps),
             rest: parseFloat(set.rest) || 0,
             note: sessionData[exId].note,
@@ -878,7 +899,6 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             order
         });
         
-        // Сохраняем номер строки для последующего update
         if (result?.row_number) {
             setSessionData(prev => ({
                 ...prev,
@@ -887,7 +907,6 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
                     sets: prev[exId].sets.map(s => s.id === setId ? { ...s, rowNumber: result.row_number } : s)
                 }
             }));
-            console.log('Saved set with row_number:', result.row_number);
         }
         
         notify('success');
@@ -903,7 +922,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       
       // Если подход выполнен, в режиме редактирования и имеет rowNumber (или fallback на order/setGroupId)
       if (set?.completed && set.isEditing && (set.rowNumber || (set.order != null && set.setGroupId))) {
-        // Сохраняем ВСЕ актуальные данные в ref для отправки
+        const exercise = prev[exId]?.exercise;
         pendingUpdateRef.current = {
           exId,
           setId,
@@ -912,7 +931,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           weight: set.weight,
           reps: set.reps,
           rest: set.rest,
-          rowNumber: set.rowNumber  // Главное - номер строки!
+          rowNumber: set.rowNumber,
+          equipmentType: exercise?.equipmentType
         };
         
         // Очищаем предыдущий таймер и запускаем новый
@@ -925,12 +945,14 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           console.log('Sending update with row_number:', data.rowNumber);
           
           try {
+            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType)) ?? (parseFloat(data.weight) || 0);
             const result = await api.updateSet({
-              row_number: data.rowNumber,  // Передаём номер строки - быстро и надёжно
+              row_number: data.rowNumber,
               exercise_id: data.exId,
               set_group_id: data.setGroupId,
               order: data.order,
-              weight: parseFloat(data.weight) || 0,
+              weight: effective,
+              input_weight: parseFloat(data.weight) || 0,
               reps: parseInt(data.reps) || 0,
               rest: parseFloat(data.rest) || 0
             });

@@ -314,17 +314,21 @@ class GoogleSheetsManager:
             # RIR опционально (колонка 10)
             rir_val = data.get('rir')
             rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
+            weight_effective = DataParser.to_float(data.get('weight'))
+            input_weight = data.get('input_weight')
+            input_weight_cell = DataParser.to_float(input_weight) if input_weight is not None and str(input_weight).strip() != '' else ''
             row = [
                 timestamp,
                 data.get('exercise_id'),
                 "", 
-                DataParser.to_float(data.get('weight')),
+                weight_effective,
                 DataParser.to_int(data.get('reps')),
                 DataParser.to_float(data.get('rest')),
                 data.get('set_group_id'),
                 data.get('note', ''),
                 DataParser.to_int(data.get('order')),
-                rir_cell
+                rir_cell,
+                input_weight_cell
             ]
             result = self.log_sheet.append_row(row)
             self._invalidate_log_cache()
@@ -357,7 +361,7 @@ class GoogleSheetsManager:
             logger.info(f"update_workout_set called with row_number={row_num}, data keys={list(data.keys())}")
             
             # Стандартные индексы колонок (1-based для update_cell)
-            weight_col, reps_col, rest_col, rir_col = 4, 5, 6, 10
+            weight_col, reps_col, rest_col, rir_col, input_weight_col = 4, 5, 6, 10, 11
             
             # Если row_number передан - используем напрямую (надёжный способ)
             if row_num and isinstance(row_num, int) and row_num > 1:
@@ -368,6 +372,8 @@ class GoogleSheetsManager:
                 self.log_sheet.update_cell(row_num, weight_col, weight)
                 self.log_sheet.update_cell(row_num, reps_col, reps)
                 self.log_sheet.update_cell(row_num, rest_col, rest)
+                if 'input_weight' in data and data.get('input_weight') is not None:
+                    self.log_sheet.update_cell(row_num, input_weight_col, DataParser.to_float(data.get('input_weight')))
                 if 'rir' in data:
                     rir_val = data.get('rir')
                     rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
