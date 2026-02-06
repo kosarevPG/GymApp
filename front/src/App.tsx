@@ -7,11 +7,13 @@ import {
 } from 'lucide-react';
 import { getWeightInputType, calcEffectiveWeight, WEIGHT_FORMULAS } from './exerciseConfig';
 
-function weightForInputDisplay(effective: number, equipmentType?: string): string {
-  const type = getWeightInputType(equipmentType);
-  const formula = WEIGHT_FORMULAS[type];
-  const input = formula.toInput?.(effective) ?? effective;
-  return String(Math.round(input * 10) / 10);
+/** Отображение веса из истории: если есть inputWeight — берём его, иначе weight как есть */
+function weightFromHistory(s: { weight: number; inputWeight?: number }): string {
+  if (s.inputWeight !== undefined && s.inputWeight !== null) {
+    return String(s.inputWeight);
+  }
+  // Старые данные — показываем weight как есть (это то, что ввёл юзер до нормализации)
+  return String(s.weight);
 }
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -822,14 +824,12 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
             
             if (lastDate) {
                 // Если это суперсет, находим подходы текущего упражнения
-                const exercise = allExercises.find((e: Exercise) => e.id === exId);
-                const eqType = exercise?.equipmentType;
                 if (firstGroup.isSuperset && firstGroup.exercises) {
                     const currentExercise = firstGroup.exercises.find((ex: any) => ex.exerciseId === exId);
                     if (currentExercise && currentExercise.sets) {
                         initialSets = currentExercise.sets.map((s: any) => ({
                             id: crypto.randomUUID(), 
-                            weight: weightForInputDisplay(s.weight, eqType),
+                            weight: weightFromHistory(s),
                             reps: s.reps.toString(), 
                             rest: s.rest.toString(), 
                             completed: false, 
@@ -839,7 +839,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
                 } else if (firstGroup.sets) {
                     initialSets = firstGroup.sets.map((s: any) => ({
                         id: crypto.randomUUID(), 
-                        weight: weightForInputDisplay(s.weight, eqType),
+                        weight: weightFromHistory(s),
                         reps: s.reps.toString(), 
                         rest: s.rest.toString(), 
                         completed: false, 

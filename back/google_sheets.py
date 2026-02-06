@@ -470,6 +470,7 @@ class GoogleSheetsManager:
             note_idx = None
             order_idx = None
             set_group_idx = None
+            input_weight_idx = None
             
             for i, header in enumerate(headers):
                 header_lower = str(header).lower().strip().replace(' ', '_').replace('-', '_')
@@ -477,6 +478,8 @@ class GoogleSheetsManager:
                     ex_id_idx = i
                 elif 'date' in header_lower and date_idx is None:
                     date_idx = i
+                elif 'input' in header_lower and 'weight' in header_lower and input_weight_idx is None:
+                    input_weight_idx = i
                 elif 'weight' in header_lower and weight_idx is None:
                     weight_idx = i
                 elif ('reps' in header_lower or 'repetitions' in header_lower) and reps_idx is None:
@@ -491,7 +494,7 @@ class GoogleSheetsManager:
                     if set_group_idx is None:
                         set_group_idx = i
             
-            # Если не нашли автоматически, используем стандартные индексы (A-I)
+            # Если не нашли автоматически, используем стандартные индексы (A-K)
             if ex_id_idx is None: ex_id_idx = 1
             if date_idx is None: date_idx = 0
             if weight_idx is None: weight_idx = 3
@@ -500,6 +503,7 @@ class GoogleSheetsManager:
             if set_group_idx is None: set_group_idx = 6
             if note_idx is None: note_idx = 7
             if order_idx is None: order_idx = 8
+            if input_weight_idx is None: input_weight_idx = 10  # колонка K
             
             history_items = []
             last_note = ""
@@ -525,14 +529,21 @@ class GoogleSheetsManager:
                     order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
                     set_group_id = str(row[set_group_idx]).strip() if set_group_idx < len(row) and row[set_group_idx] else ''
                     
-                    history_items.append({
+                    # input_weight из колонки K (если есть)
+                    raw_input_wt = row[input_weight_idx] if input_weight_idx < len(row) else ''
+                    input_wt = DataParser.to_float(raw_input_wt) if raw_input_wt and str(raw_input_wt).strip() else None
+                    
+                    item = {
                         'date': date_val,
                         'weight': weight,
                         'reps': reps,
                         'rest': rest,
                         'order': order,
                         'setGroupId': set_group_id if set_group_id else None,
-                    })
+                    }
+                    if input_wt is not None:
+                        item['inputWeight'] = input_wt
+                    history_items.append(item)
             
             # Сортировка по дате (от новых к старым) и ORDER
             history_items.sort(key=lambda x: (x.get('date', ''), x.get('order', 0)), reverse=True)
