@@ -725,7 +725,10 @@ class GoogleSheetsManager:
         try:
             all_values = self.log_sheet.get_all_values()
             if not all_values or len(all_values) < 2:
-                return self._empty_analytics_v4(period)
+                empty = self._empty_analytics_v4(period)
+                if debug:
+                    empty['_debug'] = {'reason': 'no_data', 'total_rows': len(all_values) if all_values else 0}
+                return empty
             
             # EXERCISES: id, Name — наименования упражнений
             all_ex_data = self.get_all_exercises()
@@ -901,8 +904,7 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"Analytics v4 error: {e}", exc_info=True)
             empty = self._empty_analytics_v4(period)
-            if debug:
-                empty['_debug'] = {'error': str(e)}
+            empty['_debug'] = {'error': str(e), 'error_type': type(e).__name__}
             return empty
     
     def _get_baselines_map(self) -> Dict:
