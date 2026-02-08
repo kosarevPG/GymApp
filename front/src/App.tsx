@@ -2,25 +2,16 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
-  ChevronLeft, Settings, ArrowLeft, Camera, Pencil, Trophy,
+  Settings, ArrowLeft, Pencil, Trophy,
   History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, AlertTriangle
 } from 'lucide-react';
-import { getWeightInputType, calcEffectiveWeight, WEIGHT_FORMULAS } from './exerciseConfig';
-
-/** Отображение веса из истории: если есть inputWeight — берём его, иначе weight как есть */
-function weightFromHistory(s: { weight: number; inputWeight?: number }): string {
-  if (s.inputWeight !== undefined && s.inputWeight !== null) {
-    return String(s.inputWeight);
-  }
-  // Старые данные — показываем weight как есть (это то, что ввёл юзер до нормализации)
-  return String(s.weight);
-}
-import { motion, AnimatePresence } from 'framer-motion';
-
-// --- CONFIG ---
-// Используем переменную окружения или localhost для разработки
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const WORKOUT_STORAGE_KEY = 'gym_workout_state_v2'; // Ключ для хранения сессии тренировки 
+import { getWeightInputType, calcEffectiveWeight, WEIGHT_FORMULAS, BODY_WEIGHT_DEFAULT, WEIGHT_TYPES, allows1rm } from './exerciseConfig';
+import { API_BASE_URL, WORKOUT_STORAGE_KEY, EDIT_EXERCISE_DRAFT_KEY, SESSION_ID_KEY, ORDER_COUNTER_KEY, LAST_ACTIVE_KEY, sortGroups } from './constants';
+import { createEmptySet, createSetFromHistory } from './utils';
+import { ScreenHeader } from './components/ScreenHeader';
+import { SetDisplayRow } from './components/SetDisplayRow';
+import { ImageUploadSlot } from './components/ImageUploadSlot';
+import { motion, AnimatePresence } from 'framer-motion'; 
 
 // --- TYPES ---
 
@@ -254,28 +245,28 @@ const useSession = () => {
   const [orderCounter, setOrderCounter] = useState(0);
 
   useEffect(() => {
-    const lastActive = localStorage.getItem('gym_last_active');
-    const savedSession = localStorage.getItem('gym_session_id');
-    const savedOrder = localStorage.getItem('gym_order_counter');
+    const lastActive = localStorage.getItem(LAST_ACTIVE_KEY);
+    const savedSession = localStorage.getItem(SESSION_ID_KEY);
+    const savedOrder = localStorage.getItem(ORDER_COUNTER_KEY);
     const now = Date.now();
 
     if (!lastActive || (now - parseInt(lastActive)) > 14400000 || !savedSession) {
       const newId = crypto.randomUUID();
       setSessionId(newId);
       setOrderCounter(0);
-      localStorage.setItem('gym_session_id', newId);
+      localStorage.setItem(SESSION_ID_KEY, newId);
     } else {
       setSessionId(savedSession);
       setOrderCounter(parseInt(savedOrder || '0'));
     }
-    localStorage.setItem('gym_last_active', now.toString());
+    localStorage.setItem(LAST_ACTIVE_KEY, now.toString());
   }, []);
 
   const incrementOrder = () => {
     const next = orderCounter + 1;
     setOrderCounter(next);
-    localStorage.setItem('gym_order_counter', next.toString());
-    localStorage.setItem('gym_last_active', Date.now().toString());
+    localStorage.setItem(ORDER_COUNTER_KEY, next.toString());
+    localStorage.setItem(LAST_ACTIVE_KEY, Date.now().toString());
     return next;
   };
   return { sessionId, incrementOrder };
@@ -365,17 +356,6 @@ const NoteWidget = ({ initialValue, onChange }: any) => {
 };
 
 const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
-  // Логируем структуру данных для отладки
-  useEffect(() => {
-    if (isOpen && history) {
-      console.log('HistoryListModal - history data:', history);
-      console.log('HistoryListModal - history type:', Array.isArray(history) ? 'array' : typeof history);
-      if (Array.isArray(history) && history.length > 0) {
-        console.log('HistoryListModal - first item:', history[0]);
-      }
-    }
-  }, [isOpen, history]);
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`История: ${exerciseName}`}>
       <div className="space-y-6">
@@ -403,19 +383,7 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
                         const isLastExercise = exIdx === group.exercises.length - 1;
                         const borderClass = isLastSet && isLastExercise ? '' : 'border-b border-zinc-800/50';
                         return (
-                          <div 
-                            key={setIdx} 
-                            className={`p-3 border-l-2 border-l-blue-500 bg-blue-500/5 ${borderClass} flex items-center justify-between`}
-                          >
-                            <div>
-                              <div className="text-lg font-medium text-zinc-200">
-                                {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps} <span className="text-sm text-zinc-500">повторений</span>
-                              </div>
-                            </div>
-                            <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
-                              отдых {set.rest}м
-                            </div>
-                          </div>
+                          <SetDisplayRow key={setIdx} weight={set.weight} reps={set.reps} rest={set.rest} className={`p-3 border-l-2 border-l-blue-500 bg-blue-500/5 ${borderClass}`} />
                         );
                       })}
                     </div>
@@ -435,19 +403,7 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
                   {group.sets.map((set: any, setIdx: number) => {
                     const isLastSet = setIdx === group.sets.length - 1;
                     return (
-                      <div 
-                        key={setIdx} 
-                        className={`p-3 ${isLastSet ? '' : 'border-b border-zinc-800/50'} flex items-center justify-between`}
-                      >
-                        <div>
-                          <div className="text-lg font-medium text-zinc-200">
-                            {set.weight} <span className="text-sm text-zinc-500">кг</span> × {set.reps} <span className="text-sm text-zinc-500">повторений</span>
-                          </div>
-                        </div>
-                        <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
-                          отдых {set.rest}м
-                        </div>
-                      </div>
+                      <SetDisplayRow key={setIdx} weight={set.weight} reps={set.reps} rest={set.rest} className={`p-3 ${isLastSet ? '' : 'border-b border-zinc-800/50'}`} />
                     );
                   })}
                 </div>
@@ -461,16 +417,13 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const BODY_WEIGHT_DEFAULT = 90;
-
 const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; baseWeight?: number; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
   const weightType = getWeightInputType(equipmentType, weightTypeFromRef);
   const formula = WEIGHT_FORMULAS[weightType];
   const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType, undefined, baseWeight);
   const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
-  const allow1rm = weightType !== 'assisted' && weightType !== 'bodyweight';
-  const oneRM = allow1rm && displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
-  const show1rm = allow1rm;
+  const show1rm = allows1rm(weightType);
+  const oneRM = show1rm && displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
   const isAssisted = weightType === 'assisted';
   const asi = isAssisted && displayWeight && displayWeight > 0 ? (displayWeight / BODY_WEIGHT_DEFAULT).toFixed(2) : null;
   const delta = set.prevWeight ? (displayWeight - set.prevWeight) : 0;
@@ -676,21 +629,6 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
   // Получаем актуальные данные упражнения из allExercises
   const infoModalEx = infoModalExId ? allExercises.find((ex: Exercise) => ex.id === infoModalExId) || null : null;
   
-  // Отладка: логируем данные упражнения
-  useEffect(() => {
-    if (infoModalEx) {
-      console.log('Exercise data in modal:', {
-        id: infoModalEx.id,
-        name: infoModalEx.name,
-        imageUrl: infoModalEx.imageUrl,
-        imageUrl2: infoModalEx.imageUrl2,
-        hasImageUrl2: !!infoModalEx.imageUrl2,
-        imageUrl2Length: infoModalEx.imageUrl2?.length || 0,
-        imageUrl2Trimmed: infoModalEx.imageUrl2?.trim() || ''
-      });
-    }
-  }, [infoModalEx]);
-  
   // Автофокус на поле поиска при монтировании, если есть searchQuery
   useEffect(() => {
     if (searchQuery && searchInputRef.current) {
@@ -703,26 +641,26 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
   
   return (
     <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex flex-col h-full">
-      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-            <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white"><ChevronLeft className="w-6 h-6" /></button>
-            {searchQuery ? (
-              <div className="relative flex-1">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <Input 
-                  ref={searchInputRef}
-                  placeholder="Найти..." 
-                  value={searchQuery}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} 
-                  className="pl-8 bg-zinc-900 w-full h-9 text-sm" 
-                />
-              </div>
-            ) : (
-              <h1 className="text-xl font-bold truncate">{title}</h1>
-            )}
-        </div>
-        <button onClick={onAddExercise} className="p-2 text-blue-500 hover:bg-zinc-800 rounded-full active:scale-90"><Plus className="w-7 h-7" /></button>
-      </div>
+      <ScreenHeader
+        title={title}
+        onBack={onBack}
+        rightAction={<button onClick={onAddExercise} className="p-2 text-blue-500 hover:bg-zinc-800 rounded-full active:scale-90"><Plus className="w-7 h-7" /></button>}
+      >
+        {searchQuery ? (
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <Input 
+              ref={searchInputRef}
+              placeholder="Найти..." 
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value)} 
+              className="pl-8 bg-zinc-900 w-full h-9 text-sm" 
+            />
+          </div>
+        ) : (
+          <h1 className="text-xl font-bold truncate">{title}</h1>
+        )}
+      </ScreenHeader>
       <div className="p-4 space-y-2 pb-24">
         {exercises.map((ex: Exercise) => (
           <ExerciseCard key={ex.id} ex={ex} onSelectExercise={onSelectExercise} onInfoClick={(ex: Exercise) => setInfoModalExId(ex.id)} />
@@ -733,14 +671,14 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
           <div className="space-y-4">
              <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
                {infoModalEx.imageUrl ? (
-                 <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" onError={() => console.error('Error loading main image:', infoModalEx.imageUrl)} />
+                 <img src={infoModalEx.imageUrl} className="w-full h-full object-cover" alt="Основное фото" onError={() => {}} />
                ) : (
                  <div className="w-full h-full flex items-center justify-center text-zinc-500">Нет фото</div>
                )}
              </div>
              {infoModalEx.imageUrl2 && infoModalEx.imageUrl2.trim() !== '' ? (
                <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
-                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" onError={() => console.error('Error loading second image:', infoModalEx.imageUrl2)} />
+                 <img src={infoModalEx.imageUrl2} className="w-full h-full object-cover" alt="Дополнительное фото" onError={() => {}} />
                </div>
              ) : (
                <div className="text-xs text-zinc-500 text-center py-2">Дополнительное фото отсутствует</div>
@@ -800,15 +738,6 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
   }, [localGroupId, activeExercises, sessionData]);
 
   const loadExerciseData = async (exId: string) => {
-    // Не загружаем, если данные уже есть в стейте (например, восстановлены)
-    setSessionData(prev => {
-        // Если уже есть полные данные упражнения, не трогаем
-        if (prev[exId] && prev[exId].exercise) {
-             return prev; 
-        }
-        return prev; 
-    });
-    
     // Загружаем историю (асинхронно)
     const { history, note } = await api.getHistory(exId);
     
@@ -845,36 +774,20 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
                 if (firstGroup.isSuperset && firstGroup.exercises) {
                     const currentExercise = firstGroup.exercises.find((ex: any) => ex.exerciseId === exId);
                     if (currentExercise && currentExercise.sets) {
-                        initialSets = currentExercise.sets.map((s: any) => ({
-                            id: crypto.randomUUID(), 
-                            weight: weightFromHistory(s),
-                            reps: s.reps.toString(), 
-                            rest: s.rest.toString(), 
-                            completed: false, 
-                            prevWeight: s.weight
-                        }));
+                        initialSets = currentExercise.sets.map((s: any) => createSetFromHistory(s, s.weight));
                     }
                 } else if (firstGroup.sets) {
-                    initialSets = firstGroup.sets.map((s: any) => ({
-                        id: crypto.randomUUID(), 
-                        weight: weightFromHistory(s),
-                        reps: s.reps.toString(), 
-                        rest: s.rest.toString(), 
-                        completed: false, 
-                        prevWeight: s.weight
-                    }));
+                    initialSets = firstGroup.sets.map((s: any) => createSetFromHistory(s, s.weight));
                 }
                 
-                // Если не нашли подходы, создаем пустой сет
                 if (initialSets.length === 0) {
-                    initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
+                    initialSets = [createEmptySet()];
                 }
             } else {
-                // Если даты нет, создаем пустой сет
-                initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
+                initialSets = [createEmptySet()];
             }
         } else {
-            initialSets = [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }];
+            initialSets = [createEmptySet()];
         }
         return { ...prev, [exId]: { exercise: allExercises.find((e: Exercise) => e.id === exId)!, note: note || '', history, sets: initialSets } };
     });
@@ -917,6 +830,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     try {
         const result = await api.saveSet({
             exercise_id: exId,
+            exercise_name: exercise?.name,
             weight: effectiveWeight,
             input_weight: inputWeight,
             reps: parseInt(set.reps),
@@ -971,8 +885,6 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           const data = pendingUpdateRef.current;
           if (!data) return;
           
-          console.log('Sending update with row_number:', data.rowNumber);
-          
           try {
             const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType), undefined, data.baseWeight) ?? (parseFloat(data.weight) || 0);
             const result = await api.updateSet({
@@ -985,7 +897,6 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
               reps: parseInt(data.reps) || 0,
               rest: parseFloat(data.rest) || 0
             });
-            console.log('Update result:', result);
             
             if (result?.status === 'success') {
               // После успешного сохранения - карандаш становится серым
@@ -997,8 +908,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
                 }
               }));
             }
-          } catch (e) {
-            console.error('Failed to update set:', e);
+          } catch {
+            // Silent fail for update set
           }
         }, 1500); // 1.5 секунды - теперь не нужно ждать долго
       }
@@ -1021,7 +932,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     setSessionData(prev => {
         const currentSets = prev[exId].sets;
         const lastSet = currentSets[currentSets.length - 1];
-        const newSet = { id: crypto.randomUUID(), weight: lastSet?.weight || '', reps: lastSet?.reps || '', rest: lastSet?.rest || '', completed: false, prevWeight: 0 };
+        const newSet = createEmptySet({ weight: lastSet?.weight || '', reps: lastSet?.reps || '', rest: lastSet?.rest || '' });
         return { ...prev, [exId]: { ...prev[exId], sets: [...currentSets, newSet] } };
     });
   };
@@ -1030,10 +941,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
       setSessionData(prev => {
           if (!prev[exId]) return prev;
           const filteredSets = prev[exId].sets.filter(s => s.id !== setId);
-          // Если удалили все подходы, добавляем один пустой
-          const finalSets = filteredSets.length === 0 
-              ? [{ id: crypto.randomUUID(), weight: '', reps: '', rest: '', completed: false, prevWeight: 0 }]
-              : filteredSets;
+          const finalSets = filteredSets.length === 0 ? [createEmptySet()] : filteredSets;
           return { ...prev, [exId]: { ...prev[exId], sets: finalSets } };
       });
   };
@@ -1184,15 +1092,9 @@ const AnalyticsScreen = ({ onBack }: any) => {
 
   return (
     <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
-      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4">
-        <div className="flex items-center gap-4 mb-3">
-          <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <h1 className="text-xl font-bold">Аналитика</h1>
-        </div>
-        
-        <div className="flex gap-2">
+      <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
+        <ScreenHeader title="Аналитика" onBack={onBack} />
+        <div className="flex gap-2 px-4 pb-3">
           {[7, 14, 28].map(p => (
             <button
               key={p}
@@ -1341,10 +1243,7 @@ const HistoryScreen = ({ onBack }: any) => {
 
     return (
         <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
-            <div className="sticky top-0 z-30 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800 p-4 flex items-center gap-4">
-                <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 active:text-white"><ChevronLeft className="w-6 h-6" /></button>
-                <h1 className="text-xl font-bold">История</h1>
-            </div>
+            <ScreenHeader title="История" onBack={onBack} />
             <div className="p-4 space-y-4 pb-20">
                 {history.map(w => (
                     <Card key={w.id} className="overflow-hidden">
@@ -1374,12 +1273,6 @@ const HistoryScreen = ({ onBack }: any) => {
                                             // Определяем позицию в суперсете
                                             const isSupersetStart = isSuperset && prevSupersetId !== ex.supersetId;
                                             const isSupersetMiddle = isSuperset && prevSupersetId === ex.supersetId && nextSupersetId === ex.supersetId;
-                                            const isSupersetEnd = isSuperset && nextSupersetId !== ex.supersetId;
-                                            
-                                            // Отладочная информация (можно убрать после тестирования)
-                                            if (isSuperset) {
-                                                console.log(`Exercise "${ex.name}": supersetId=${ex.supersetId}, prev=${prevSupersetId}, next=${nextSupersetId}, start=${isSupersetStart}, middle=${isSupersetMiddle}, end=${isSupersetEnd}`);
-                                            }
                                             
                                             // Стили для визуального отображения суперсета
                                             let borderClass = "border-b border-zinc-800/50";
@@ -1415,21 +1308,8 @@ const HistoryScreen = ({ onBack }: any) => {
                                                                 const rest = typeof s.rest === 'number' ? s.rest : (s.rest ? parseFloat(String(s.rest)) : 0);
                                                                 const isLastSet = j === ex.sets.length - 1;
                                                                 const setBorderClass = isLastSet && !isSuperset ? '' : 'border-b border-zinc-800/50';
-                                                                
                                                                 return (
-                                                                    <div 
-                                                                        key={j} 
-                                                                        className={`p-3 ${setBorderClass} flex items-center justify-between`}
-                                                                    >
-                                                                        <div>
-                                                                            <div className="text-lg font-medium text-zinc-200">
-                                                                                {weight} <span className="text-sm text-zinc-500">кг</span> × {reps} <span className="text-sm text-zinc-500">повторений</span>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="text-zinc-500 font-mono text-sm bg-zinc-900/50 px-2 py-1 rounded">
-                                                                            отдых {rest}м
-                                                                        </div>
-                                                                    </div>
+                                                                    <SetDisplayRow key={j} weight={weight} reps={reps} rest={rest} className={`p-3 ${setBorderClass}`} />
                                                                 );
                                                             })}
                                                         </div>
@@ -1453,10 +1333,7 @@ const HistoryScreen = ({ onBack }: any) => {
     );
 };
 
-const WEIGHT_TYPES = ['Barbell', 'Plate_Loaded', 'Dumbbell', 'Machine', 'Assisted', 'Bodyweight'] as const;
-
 const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOpen: boolean; onClose: () => void; exercise: Exercise | null; groups: string[]; onSave: (id: string, updates: Partial<Exercise>) => void | Promise<void> }) => {
-    const STORAGE_KEY = 'gym_edit_exercise_draft';
     
     const [name, setName] = useState('');
     const [group, setGroup] = useState('');
@@ -1468,8 +1345,6 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
     const [weightMultiplier, setWeightMultiplier] = useState(1);
     const [testInput, setTestInput] = useState('10');
     const [testBodyWt, setTestBodyWt] = useState(90);
-    const fileRef = useRef<HTMLInputElement>(null);
-    const fileRef2 = useRef<HTMLInputElement>(null);
     
     // Сохраняем состояние в localStorage при каждом изменении
     useEffect(() => {
@@ -1485,7 +1360,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                 baseWeight,
                 weightMultiplier
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+            localStorage.setItem(EDIT_EXERCISE_DRAFT_KEY, JSON.stringify(draft));
         }
     }, [name, group, description, image, image2, weightType, baseWeight, weightMultiplier, exercise, isOpen]);
     
@@ -1493,7 +1368,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
     useEffect(() => { 
         if(exercise && isOpen) {
             // Пытаемся восстановить из localStorage
-            const saved = localStorage.getItem(STORAGE_KEY);
+            const saved = localStorage.getItem(EDIT_EXERCISE_DRAFT_KEY);
             if (saved) {
                 try {
                     const draft = JSON.parse(saved);
@@ -1509,8 +1384,8 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                         setWeightMultiplier(draft.weightMultiplier ?? exercise.weightMultiplier ?? 1);
                         return;
                     }
-                } catch (e) {
-                    console.error('Error restoring draft:', e);
+                } catch {
+                    // Ignore draft parse error
                 }
             }
             // Если нет сохраненного или это другой exercise, используем данные из exercise
@@ -1528,7 +1403,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
     // Очищаем сохраненное состояние при закрытии модального окна
     useEffect(() => {
         if (!isOpen) {
-            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(EDIT_EXERCISE_DRAFT_KEY);
         }
     }, [isOpen]);
     
@@ -1540,11 +1415,10 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
             if (document.hidden) {
                 // Приложение свернуто - сохраняем состояние
                 const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
-                console.log('App hidden - saved draft to localStorage');
+                localStorage.setItem(EDIT_EXERCISE_DRAFT_KEY, JSON.stringify(draft));
             } else {
                 // Приложение снова видимо - восстанавливаем состояние
-                const saved = localStorage.getItem(STORAGE_KEY);
+                const saved = localStorage.getItem(EDIT_EXERCISE_DRAFT_KEY);
                 if (saved) {
                     try {
                         const draft = JSON.parse(saved);
@@ -1557,10 +1431,9 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                             setWeightType(draft.weightType ?? exercise.weightType ?? 'Dumbbell');
                             setBaseWeight(draft.baseWeight ?? exercise.baseWeight ?? 0);
                             setWeightMultiplier(draft.weightMultiplier ?? exercise.weightMultiplier ?? 1);
-                            console.log('App visible - restored draft from localStorage');
                         }
-                    } catch (e) {
-                        console.error('Error restoring draft on visibility change:', e);
+                    } catch {
+                        // Ignore
                     }
                 }
             }
@@ -1573,93 +1446,44 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
     const [uploadingImage1, setUploadingImage1] = useState(false);
     const [uploadingImage2, setUploadingImage2] = useState(false);
 
-    const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setUploadingImage1(true);
-            try {
-                // Показываем превью локально
-                const r = new FileReader();
-                r.onloadend = () => setImage(r.result as string);
-                r.readAsDataURL(file);
-                
-                // Загружаем на Cloudinary
-                console.log('Uploading image 1 to Cloudinary...');
-                const result = await api.uploadImage(file);
-                console.log('Upload result:', result);
-                if (result && result.url) {
-                    setImage(result.url);
-                    console.log('Image 1 uploaded successfully, URL:', result.url);
-                } else {
-                    console.error('Failed to upload image 1: no URL in result');
-                }
-            } catch (error) {
-                console.error('Error uploading image 1:', error);
-            } finally {
-                setUploadingImage1(false);
-            }
+    const saveDraft = () => {
+        if (exercise) {
+            const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
+            localStorage.setItem(EDIT_EXERCISE_DRAFT_KEY, JSON.stringify(draft));
         }
     };
 
-    const handleFile2 = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setUploadingImage2(true);
-            try {
-                // Показываем превью локально
-                const r = new FileReader();
-                r.onloadend = () => setImage2(r.result as string);
-                r.readAsDataURL(file);
-                
-                // Загружаем на Cloudinary
-                console.log('Uploading image 2 to Cloudinary...');
-                const result = await api.uploadImage(file);
-                console.log('Upload result:', result);
-                if (result && result.url) {
-                    setImage2(result.url);
-                    console.log('Image 2 uploaded successfully, URL:', result.url);
-                } else {
-                    console.error('Failed to upload image 2: no URL in result');
-                }
-            } catch (error) {
-                console.error('Error uploading image 2:', error);
-            } finally {
-                setUploadingImage2(false);
-            }
+    const handleUpload = async (file: File, slot: 1 | 2): Promise<string | null> => {
+        slot === 1 ? setUploadingImage1(true) : setUploadingImage2(true);
+        try {
+            const result = await api.uploadImage(file);
+            return result?.url ?? null;
+        } finally {
+            slot === 1 ? setUploadingImage1(false) : setUploadingImage2(false);
         }
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Редактировать">
             <div className="space-y-6">
-                <div>
-                    <label className="text-sm text-zinc-400 mb-2 block">Основное фото</label>
-                    <div onClick={() => {
-                        // Сохраняем состояние перед открытием файлового диалога
-                        if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
-                            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
-                        }
-                        fileRef.current?.click();
-                    }} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
-                        {image ? <img src={image} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото</span></div>}
-                    </div>
-                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-                </div>
-                <div>
-                    <label className="text-sm text-zinc-400 mb-2 block">Дополнительное фото</label>
-                    <div onClick={() => {
-                        // Сохраняем состояние перед открытием файлового диалога
-                        if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
-                            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
-                        }
-                        fileRef2.current?.click();
-                    }} className="w-full h-48 bg-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center cursor-pointer border border-zinc-700 border-dashed">
-                        {image2 ? <img src={image2} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center text-zinc-500"><Camera className="w-8 h-8 mb-2" /><span className="text-sm">Фото 2</span></div>}
-                    </div>
-                    <input ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handleFile2} />
-                </div>
+                <ImageUploadSlot
+                    value={image}
+                    onChange={setImage}
+                    onUpload={(f) => handleUpload(f, 1)}
+                    uploading={uploadingImage1}
+                    label="Основное фото"
+                    inputId="edit-exercise-image-1"
+                    onBeforeOpen={saveDraft}
+                />
+                <ImageUploadSlot
+                    value={image2}
+                    onChange={setImage2}
+                    onUpload={(f) => handleUpload(f, 2)}
+                    uploading={uploadingImage2}
+                    label="Дополнительное фото"
+                    inputId="edit-exercise-image-2"
+                    onBeforeOpen={saveDraft}
+                />
                 <div><label className="text-sm text-zinc-400 mb-1 block">Название</label><Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} /></div>
                 
                 <div>
@@ -1683,7 +1507,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                         <div>
                             <span className="text-xs text-zinc-500 block mb-1">Тип</span>
                             <select value={weightType} onChange={e => setWeightType(e.target.value)} className="w-full h-10 bg-zinc-800 rounded-xl px-3 text-zinc-100 text-sm focus:ring-1 focus:ring-blue-500 outline-none">
-                                {WEIGHT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                {WEIGHT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1718,7 +1542,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                 <Button 
                     onClick={async () => { 
                         if (!exercise) return;
-                        localStorage.removeItem(STORAGE_KEY);
+                        localStorage.removeItem(EDIT_EXERCISE_DRAFT_KEY);
                         await onSave(exercise.id, { name, muscleGroup: group, description, imageUrl: image, imageUrl2: image2, weightType, baseWeight, weightMultiplier }); 
                         onClose(); 
                     }} 
@@ -1765,7 +1589,6 @@ const App = () => {
                 const ex = allExercises.find((e: Exercise) => e.id === exId);
                 
                 if (ex) {
-                    console.log('Restoring previous workout session...');
                     setCurrentExercise(ex);
                     setScreen('workout');
                 }
@@ -1773,8 +1596,7 @@ const App = () => {
                 // Если данные устарели или пусты, очищаем
                 localStorage.removeItem(WORKOUT_STORAGE_KEY);
             }
-        } catch (e) {
-            console.error('Failed to restore session', e);
+        } catch {
             localStorage.removeItem(WORKOUT_STORAGE_KEY);
         }
     }
@@ -1796,37 +1618,12 @@ const App = () => {
     return () => clearInterval(pingInterval);
   }, []);
 
-  // Порядок отображения групп мышц
-  const groupOrder = ['Спина', 'Ноги', 'Грудь', 'Плечи', 'Трицепс', 'Бицепс', 'Пресс', 'Кардио'];
-  
-  // Мемоизированная функция сортировки групп
-  const sortGroups = useMemo(() => {
-    return (groupsList: string[]): string[] => {
-      const sorted: string[] = [];
-      const remaining = [...groupsList];
-      
-      // Сначала добавляем группы в указанном порядке
-      groupOrder.forEach(groupName => {
-        const index = remaining.indexOf(groupName);
-        if (index !== -1) {
-          sorted.push(groupName);
-          remaining.splice(index, 1);
-        }
-      });
-      
-      // Затем добавляем оставшиеся группы (если есть новые, не указанные в порядке)
-      sorted.push(...remaining);
-      
-      return sorted;
-    };
-  }, []);
-
   useEffect(() => { 
     api.getInit().then(d => { 
       setGroups(sortGroups(d.groups)); 
       setAllExercises(d.exercises); 
     }); 
-  }, [sortGroups]);
+  }, []);
 
   // Debounce для поиска (300 мс)
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -1846,26 +1643,18 @@ const App = () => {
   };
 
   const handleUpdate = async (id: string, updates: Partial<Exercise>) => {
-      console.log('handleUpdate called with:', { id, updates });
-      console.log('imageUrl:', updates.imageUrl);
-      console.log('imageUrl2:', updates.imageUrl2);
-      
       // Обновляем локально для мгновенного отображения
       setAllExercises(p => p.map(ex => ex.id === id ? { ...ex, ...updates } : ex));
       // Сохраняем на сервере
       const result = await api.updateExercise(id, updates);
-      console.log('Update result:', result);
       if (result) {
           // Перезагружаем данные с сервера для синхронизации
           const freshData = await api.getInit();
           if (freshData && freshData.exercises) {
-              const updatedEx = freshData.exercises.find((ex: Exercise) => ex.id === id);
-              console.log('Reloaded exercise data:', updatedEx);
               setAllExercises(freshData.exercises);
           }
           notify('success');
       } else {
-          console.error('Update failed');
           notify('error');
       }
   };
