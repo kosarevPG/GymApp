@@ -37,6 +37,8 @@ interface Exercise {
   weightType?: string;
   baseWeight?: number;
   weightMultiplier?: number;
+  /** 1RM методологически некорректен для Assisted/Bodyweight */
+  allow_1rm?: boolean;
 }
 
 interface WorkoutSet {
@@ -459,12 +461,18 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
+const BODY_WEIGHT_DEFAULT = 90;
+
 const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; baseWeight?: number; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
   const weightType = getWeightInputType(equipmentType, weightTypeFromRef);
   const formula = WEIGHT_FORMULAS[weightType];
   const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType, undefined, baseWeight);
   const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
-  const oneRM = displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
+  const allow1rm = weightType !== 'assisted' && weightType !== 'bodyweight';
+  const oneRM = allow1rm && displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
+  const show1rm = allow1rm;
+  const isAssisted = weightType === 'assisted';
+  const asi = isAssisted && displayWeight && displayWeight > 0 ? (displayWeight / BODY_WEIGHT_DEFAULT).toFixed(2) : null;
   const delta = set.prevWeight ? (displayWeight - set.prevWeight) : 0;
   const deltaText = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0';
   const deltaColor = delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-zinc-500';
@@ -500,7 +508,11 @@ const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight,
           {showTotalBadge && effectiveWeight !== null && effectiveWeight >= 0 && (
             <span className="text-blue-400 font-medium">Итого: {effectiveWeight} кг</span>
           )}
-          {oneRM > 0 && <span className="text-zinc-500">1PM: {oneRM}</span>}
+          {show1rm && oneRM > 0 && <span className="text-zinc-500">1PM: {oneRM}</span>}
+          {!show1rm && (weightType === 'assisted' || weightType === 'bodyweight') && (
+            <span className="text-zinc-600 text-[9px]">1RM не рассчитывается</span>
+          )}
+          {asi !== null && <span className="text-zinc-500">ASI: {asi}</span>}
           {set.prevWeight !== undefined && displayWeight > 0 && <span className={`${deltaColor} font-medium`}>{deltaText}</span>}
         </div>
       </div>
@@ -657,7 +669,7 @@ const ExerciseCard = React.memo(({ ex, onSelectExercise, onInfoClick }: { ex: Ex
   </div>
 ), (prevProps, nextProps) => prevProps.ex.id === nextProps.ex.id && prevProps.ex.name === nextProps.ex.name && prevProps.ex.muscleGroup === nextProps.ex.muscleGroup && prevProps.ex.imageUrl === nextProps.ex.imageUrl && prevProps.ex.imageUrl2 === nextProps.ex.imageUrl2);
 
-const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, onEditExercise, searchQuery, onSearch, allExercises }: any) => {
+const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAddExercise, searchQuery, onSearch, allExercises }: any) => {
   const [infoModalExId, setInfoModalExId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
@@ -716,7 +728,7 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
           <ExerciseCard key={ex.id} ex={ex} onSelectExercise={onSelectExercise} onInfoClick={(ex: Exercise) => setInfoModalExId(ex.id)} />
         ))}
       </div>
-      <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalExId(null)} title={infoModalEx?.name} headerAction={<button onClick={() => { if (infoModalEx) { onEditExercise(infoModalEx); setInfoModalExId(null); } }} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-blue-400"><Pencil className="w-5 h-5" /></button>}>
+      <Modal isOpen={!!infoModalEx} onClose={() => setInfoModalExId(null)} title={infoModalEx?.name}>
         {infoModalEx && (
           <div className="space-y-4">
              <div className="aspect-square bg-zinc-800 rounded-2xl overflow-hidden">
@@ -770,7 +782,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [supersetSearchQuery, setSupersetSearchQuery] = useState('');
-  const [exerciseToEditMetadata, setExerciseToEditMetadata] = useState<Exercise | null>(null);
+  const [exerciseToEdit, setExerciseToEdit] = useState<Exercise | null>(null);
+  const groupsFromExercises = useMemo(() => [...new Set(allExercises.map((e: Exercise) => e.muscleGroup).filter(Boolean))].sort() as string[], [allExercises]);
 
   // АВТОСОХРАНЕНИЕ: Сохраняем при любом изменении данных
   useEffect(() => {
@@ -1038,7 +1051,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
         {activeExercises.map(exId => {
             const data = sessionData[exId];
             if (!data) return <div key={exId} className="h-40 bg-zinc-900 rounded-2xl animate-pulse" />;
-            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onToggleEdit={(sid: string) => handleToggleEdit(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} onEditMetadata={() => setExerciseToEditMetadata(data.exercise)} />;
+            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onToggleEdit={(sid: string) => handleToggleEdit(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} onEditMetadata={() => setExerciseToEdit(data.exercise)} />;
         })}
       </div>
       <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={handleFinish} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
@@ -1083,21 +1096,24 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           </div>
         </div>
       </Modal>
-      <EditExerciseMetadataModal
-        isOpen={!!exerciseToEditMetadata}
-        onClose={() => setExerciseToEditMetadata(null)}
-        exercise={exerciseToEditMetadata}
-        onSave={async (id, updates) => {
-          const result = await api.updateExercise(id, updates);
-          if (result?.status === 'success') {
-            setSessionData(prev => {
-              if (!prev[id]) return prev;
-              return { ...prev, [id]: { ...prev[id], exercise: { ...prev[id].exercise, ...updates } } };
-            });
-            onUpdateExercise?.(id, updates);
-          }
-        }}
-      />
+      {exerciseToEdit && (
+        <EditExerciseModal
+          isOpen={!!exerciseToEdit}
+          onClose={() => setExerciseToEdit(null)}
+          exercise={exerciseToEdit}
+          groups={groupsFromExercises}
+          onSave={async (id, updates) => {
+            const result = await api.updateExercise(id, updates);
+            if (result?.status === 'success') {
+              setSessionData(prev => {
+                if (!prev[id]) return prev;
+                return { ...prev, [id]: { ...prev[id], exercise: { ...prev[id].exercise, ...updates } } };
+              });
+              onUpdateExercise?.(id, updates);
+            }
+          }}
+        />
+      )}
       <div className="fixed bottom-6 left-6 z-20"><button onClick={handleFinish} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
     </div>
   );
@@ -1437,105 +1453,9 @@ const HistoryScreen = ({ onBack }: any) => {
     );
 };
 
-/** Модалка редактирования метаданных веса (Type, Base_Wt, Multiplier) — открывается из экрана подходов */
-const EditExerciseMetadataModal = ({ isOpen, onClose, exercise, onSave }: { isOpen: boolean; onClose: () => void; exercise: Exercise | null; onSave: (id: string, updates: { weightType: string; baseWeight: number; weightMultiplier: number }) => Promise<void> }) => {
-  const TYPES = ['Barbell', 'Plate_Loaded', 'Dumbbell', 'Machine', 'Assisted', 'Bodyweight'] as const;
-  const [type, setType] = useState<string>('Dumbbell');
-  const [baseWeight, setBaseWeight] = useState(0);
-  const [multiplier, setMultiplier] = useState(1);
-  const [testInput, setTestInput] = useState('10');
-  const [testBodyWt, setTestBodyWt] = useState(90);
-  const [saving, setSaving] = useState(false);
+const WEIGHT_TYPES = ['Barbell', 'Plate_Loaded', 'Dumbbell', 'Machine', 'Assisted', 'Bodyweight'] as const;
 
-  useEffect(() => {
-    if (exercise && isOpen) {
-      setType(exercise.weightType || 'Dumbbell');
-      setBaseWeight(exercise.baseWeight ?? 0);
-      setMultiplier(exercise.weightMultiplier ?? 1);
-    }
-  }, [exercise, isOpen]);
-
-  const weightInputType = getWeightInputType(undefined, type);
-  const formula = WEIGHT_FORMULAS[weightInputType];
-  const testInputNum = parseFloat(testInput) || 0;
-  const effective = !isNaN(testInputNum) && testInputNum >= 0
-    ? formula.toEffective(testInputNum, testBodyWt, baseWeight)
-    : null;
-  const volume = effective && testInputNum >= 0 ? effective * 10 : null; // reps=10 для примера
-
-  const inputHint = type === 'Barbell' || type === 'Plate_Loaded' ? 'Блины с одной стороны' 
-    : type === 'Dumbbell' ? 'Вес одной гантели' 
-    : type === 'Machine' ? 'Цифра на плитке' 
-    : type === 'Assisted' ? 'Помощь на стеке (гравитрон)' 
-    : type === 'Bodyweight' ? 'Доп. отягощение (пояс)' 
-    : 'Вес';
-
-  const handleSave = async () => {
-    if (!exercise) return;
-    setSaving(true);
-    try {
-      await onSave(exercise.id, { weightType: type, baseWeight, weightMultiplier: multiplier });
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!exercise) return null;
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Расчёт веса: ${exercise.name}`}>
-      <div className="space-y-5">
-        <div>
-          <label className="text-sm text-zinc-400 mb-2 block">Тип</label>
-          <select value={type} onChange={e => setType(e.target.value)} className="w-full h-12 bg-zinc-800 rounded-xl px-4 text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none">
-            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-sm text-zinc-400 mb-2 block">База (Base_Wt), кг</label>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setBaseWeight(Math.max(0, baseWeight - 2.5))} className="w-12 h-12 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center text-xl font-bold hover:bg-zinc-700">−</button>
-            <span className="flex-1 text-center text-xl font-bold text-zinc-100 tabular-nums">{baseWeight}</span>
-            <button onClick={() => setBaseWeight(baseWeight + 2.5)} className="w-12 h-12 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center text-xl font-bold hover:bg-zinc-700">+</button>
-          </div>
-        </div>
-        <div>
-          <label className="text-sm text-zinc-400 mb-2 block">Multiplier (ввод одной стороны)</label>
-          <div className="flex gap-2">
-            <button onClick={() => setMultiplier(1)} className={`flex-1 py-2 rounded-xl text-sm font-medium ${multiplier === 1 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>1</button>
-            <button onClick={() => setMultiplier(2)} className={`flex-1 py-2 rounded-xl text-sm font-medium ${multiplier === 2 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>2</button>
-          </div>
-        </div>
-        <div className="text-xs text-zinc-500">{inputHint}</div>
-        <div className="pt-3 border-t border-zinc-800">
-          <label className="text-sm text-zinc-400 mb-2 block">Проверка на примере</label>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div>
-              <span className="text-xs text-zinc-500">Input, кг</span>
-              <input type="number" value={testInput} onChange={e => setTestInput(e.target.value)} className="w-full h-10 bg-zinc-800 rounded-lg px-2 text-zinc-100 text-sm" />
-            </div>
-            {(type === 'Assisted' || type === 'Bodyweight') && (
-              <div>
-                <span className="text-xs text-zinc-500">Вес тела, кг</span>
-                <input type="number" value={testBodyWt} onChange={e => setTestBodyWt(Number(e.target.value) || 90)} className="w-full h-10 bg-zinc-800 rounded-lg px-2 text-zinc-100 text-sm" />
-              </div>
-            )}
-          </div>
-          {effective !== null && (
-            <div className="text-sm space-y-1">
-              <div className="text-blue-400">Effective: {effective} кг</div>
-              {volume !== null && <div className="text-zinc-500">Volume (×10 повт): {volume} кг</div>}
-            </div>
-          )}
-        </div>
-        <Button onClick={handleSave} disabled={saving} className="w-full">Сохранить</Button>
-      </div>
-    </Modal>
-  );
-};
-
-const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) => {
+const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOpen: boolean; onClose: () => void; exercise: Exercise | null; groups: string[]; onSave: (id: string, updates: Partial<Exercise>) => void | Promise<void> }) => {
     const STORAGE_KEY = 'gym_edit_exercise_draft';
     
     const [name, setName] = useState('');
@@ -1543,6 +1463,11 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
     const [description, setDescription] = useState('');
     const [image, setImage] = useState('');
     const [image2, setImage2] = useState('');
+    const [weightType, setWeightType] = useState<string>('Dumbbell');
+    const [baseWeight, setBaseWeight] = useState(0);
+    const [weightMultiplier, setWeightMultiplier] = useState(1);
+    const [testInput, setTestInput] = useState('10');
+    const [testBodyWt, setTestBodyWt] = useState(90);
     const fileRef = useRef<HTMLInputElement>(null);
     const fileRef2 = useRef<HTMLInputElement>(null);
     
@@ -1555,11 +1480,14 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                 group,
                 description,
                 image,
-                image2
+                image2,
+                weightType,
+                baseWeight,
+                weightMultiplier
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
         }
-    }, [name, group, description, image, image2, exercise, isOpen]);
+    }, [name, group, description, image, image2, weightType, baseWeight, weightMultiplier, exercise, isOpen]);
     
     // Восстанавливаем состояние из localStorage или из exercise
     useEffect(() => { 
@@ -1576,6 +1504,9 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                         setDescription(draft.description || exercise.description || '');
                         setImage(draft.image || exercise.imageUrl || '');
                         setImage2(draft.image2 || exercise.imageUrl2 || '');
+                        setWeightType(draft.weightType ?? exercise.weightType ?? 'Dumbbell');
+                        setBaseWeight(draft.baseWeight ?? exercise.baseWeight ?? 0);
+                        setWeightMultiplier(draft.weightMultiplier ?? exercise.weightMultiplier ?? 1);
                         return;
                     }
                 } catch (e) {
@@ -1587,7 +1518,10 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
             setGroup(exercise.muscleGroup); 
             setDescription(exercise.description || '');
             setImage(exercise.imageUrl || ''); 
-            setImage2(exercise.imageUrl2 || ''); 
+            setImage2(exercise.imageUrl2 || '');
+            setWeightType(exercise.weightType || 'Dumbbell');
+            setBaseWeight(exercise.baseWeight ?? 0);
+            setWeightMultiplier(exercise.weightMultiplier ?? 1);
         }
     }, [exercise, isOpen]);
     
@@ -1605,7 +1539,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         const handleVisibilityChange = () => {
             if (document.hidden) {
                 // Приложение свернуто - сохраняем состояние
-                const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
+                const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                 console.log('App hidden - saved draft to localStorage');
             } else {
@@ -1620,6 +1554,9 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                             setDescription(draft.description || exercise.description || '');
                             setImage(draft.image || exercise.imageUrl || '');
                             setImage2(draft.image2 || exercise.imageUrl2 || '');
+                            setWeightType(draft.weightType ?? exercise.weightType ?? 'Dumbbell');
+                            setBaseWeight(draft.baseWeight ?? exercise.baseWeight ?? 0);
+                            setWeightMultiplier(draft.weightMultiplier ?? exercise.weightMultiplier ?? 1);
                             console.log('App visible - restored draft from localStorage');
                         }
                     } catch (e) {
@@ -1631,7 +1568,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
         
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [isOpen, exercise, name, group, description, image, image2]);
+    }, [isOpen, exercise, name, group, description, image, image2, weightType, baseWeight, weightMultiplier]);
     
     const [uploadingImage1, setUploadingImage1] = useState(false);
     const [uploadingImage2, setUploadingImage2] = useState(false);
@@ -1700,7 +1637,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <div onClick={() => {
                         // Сохраняем состояние перед открытием файлового диалога
                         if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
+                            const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                         }
                         fileRef.current?.click();
@@ -1714,7 +1651,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <div onClick={() => {
                         // Сохраняем состояние перед открытием файлового диалога
                         if (exercise) {
-                            const draft = { exerciseId: exercise.id, name, group, description, image, image2 };
+                            const draft = { exerciseId: exercise.id, name, group, description, image, image2, weightType, baseWeight, weightMultiplier };
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
                         }
                         fileRef2.current?.click();
@@ -1739,18 +1676,50 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) =
                     <label className="text-sm text-zinc-400 mb-1 block">Группа</label>
                     <div className="flex flex-wrap gap-2">{groups.map((g: string) => <button key={g} onClick={() => setGroup(g)} className={`px-3 py-2 rounded-xl text-sm border ${group === g ? 'bg-blue-600 border-blue-600 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>{g}</button>)}</div>
                 </div>
+
+                <div className="pt-4 border-t border-zinc-800">
+                    <label className="text-sm text-zinc-400 mb-2 block">Расчёт нагрузки</label>
+                    <div className="space-y-3">
+                        <div>
+                            <span className="text-xs text-zinc-500 block mb-1">Тип</span>
+                            <select value={weightType} onChange={e => setWeightType(e.target.value)} className="w-full h-10 bg-zinc-800 rounded-xl px-3 text-zinc-100 text-sm focus:ring-1 focus:ring-blue-500 outline-none">
+                                {WEIGHT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-zinc-500 w-24">База, кг</span>
+                            <button type="button" onClick={() => setBaseWeight(Math.max(0, baseWeight - 2.5))} className="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center font-bold hover:bg-zinc-700">−</button>
+                            <span className="flex-1 text-center font-bold text-zinc-100 tabular-nums">{baseWeight}</span>
+                            <button type="button" onClick={() => setBaseWeight(baseWeight + 2.5)} className="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center font-bold hover:bg-zinc-700">+</button>
+                        </div>
+                        <div className="flex gap-2">
+                            <span className="text-xs text-zinc-500 self-center">Multiplier</span>
+                            <button type="button" onClick={() => setWeightMultiplier(1)} className={`flex-1 py-2 rounded-lg text-sm font-medium ${weightMultiplier === 1 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>1</button>
+                            <button type="button" onClick={() => setWeightMultiplier(2)} className={`flex-1 py-2 rounded-lg text-sm font-medium ${weightMultiplier === 2 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>2</button>
+                        </div>
+                        <div className="pt-2 border-t border-zinc-800/50">
+                            <span className="text-xs text-zinc-500 block mb-1">Проверка</span>
+                            <div className="flex gap-2 items-center flex-wrap">
+                                <input type="number" value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Input" className="w-16 h-8 bg-zinc-800 rounded px-2 text-zinc-100 text-sm" />
+                                {(weightType === 'Assisted' || weightType === 'Bodyweight') && (
+                                    <input type="number" value={testBodyWt} onChange={e => setTestBodyWt(Number(e.target.value) || 90)} className="w-16 h-8 bg-zinc-800 rounded px-2 text-zinc-100 text-sm" />
+                                )}
+                                {(() => {
+                                    const wt = getWeightInputType(undefined, weightType);
+                                    const f = WEIGHT_FORMULAS[wt];
+                                    const eff = !isNaN(parseFloat(testInput) || 0) ? f.toEffective(parseFloat(testInput) || 0, testBodyWt, baseWeight) : null;
+                                    return eff !== null ? <span className="text-blue-400 text-sm">→ {eff} кг</span> : null;
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <Button 
-                    onClick={() => { 
-                        console.log('Saving exercise with images:', { 
-                            id: exercise.id, 
-                            imageUrl: image, 
-                            imageUrl2: image2,
-                            imageUrlIsCloudinary: image?.startsWith('http'),
-                            imageUrl2IsCloudinary: image2?.startsWith('http')
-                        });
-                        // Очищаем сохраненное состояние после успешного сохранения
+                    onClick={async () => { 
+                        if (!exercise) return;
                         localStorage.removeItem(STORAGE_KEY);
-                        onSave(exercise.id, { name, muscleGroup: group, description, imageUrl: image, imageUrl2: image2 }); 
+                        await onSave(exercise.id, { name, muscleGroup: group, description, imageUrl: image, imageUrl2: image2, weightType, baseWeight, weightMultiplier }); 
                         onClose(); 
                     }} 
                     className="w-full h-12"
@@ -1774,7 +1743,6 @@ const App = () => {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentExercise, setCurrentExercise] = useState<Exercise | null>(null);
-  const [exerciseToEdit, setExerciseToEdit] = useState<Exercise | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState('');
@@ -1907,7 +1875,7 @@ const App = () => {
       {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} onAnalytics={() => setScreen('analytics')} searchQuery={searchQuery} />}
       {screen === 'analytics' && <AnalyticsScreen onBack={() => setScreen('home')} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
-      {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} allExercises={allExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} onEditExercise={(ex: Exercise) => setExerciseToEdit(ex)} />}
+      {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} allExercises={allExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} />}
       {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} onUpdateExercise={handleUpdate} />}
       
       <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Новое упражнение">
@@ -1917,7 +1885,6 @@ const App = () => {
              <Button onClick={handleCreate} className="w-full h-12 mt-4">Создать</Button>
          </div>
       </Modal>
-      {exerciseToEdit && <EditExerciseModal isOpen={!!exerciseToEdit} onClose={() => setExerciseToEdit(null)} exercise={exerciseToEdit} groups={groups} onSave={handleUpdate} />}
     </div>
   );
 };

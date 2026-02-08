@@ -237,6 +237,9 @@ class GoogleSheetsManager:
                     else:
                         weight_type, base_wt, multiplier = 'Dumbbell', 0, 1
                 
+                # 1RM методологически некорректен для Assisted/Bodyweight (гравитрон, свой вес)
+                allow_1rm = weight_type not in ('Assisted', 'Bodyweight')
+                
                 exercises.append({
                     'id': id_val,
                     'name': name_val,
@@ -248,7 +251,8 @@ class GoogleSheetsManager:
                     'exerciseType': ex_type or 'compound',
                     'weightType': weight_type,
                     'baseWeight': base_wt,
-                    'weightMultiplier': multiplier
+                    'weightMultiplier': multiplier,
+                    'allow_1rm': allow_1rm
                 })
             
             # Сортируем упражнения по имени (Name)
@@ -282,7 +286,8 @@ class GoogleSheetsManager:
                 ref_ex.append_row([new_id, name, ref_type, ref_base, ref_mult])
             except Exception:
                 pass
-            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": "", "equipmentType": eq, "exerciseType": ex_t, "weightType": ref_type, "baseWeight": ref_base, "weightMultiplier": ref_mult}
+            allow_1rm = ref_type not in ('Assisted', 'Bodyweight')
+            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": "", "equipmentType": eq, "exerciseType": ex_t, "weightType": ref_type, "baseWeight": ref_base, "weightMultiplier": ref_mult, "allow_1rm": allow_1rm}
         except Exception as e:
             logger.error(f"Create exercise error: {e}")
             raise
