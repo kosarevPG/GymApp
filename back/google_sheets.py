@@ -354,28 +354,23 @@ class GoogleSheetsManager:
                     exercise_name = self.exercises_sheet.cell(ex_cell.row, name_col).value or ''
                 except Exception:
                     pass
-            rir_val = data.get('rir')
-            rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
-            weight_effective = DataParser.to_float(data.get('weight'))
             input_weight = data.get('input_weight')
             input_weight_cell = DataParser.to_float(input_weight) if input_weight is not None and str(input_weight).strip() != '' else ''
+            total_weight = DataParser.to_float(data.get('weight'))
             row = [
                 timestamp,
                 data.get('exercise_id'),
                 exercise_name,
-                weight_effective,
+                input_weight_cell,
+                total_weight,
                 DataParser.to_int(data.get('reps')),
                 DataParser.to_float(data.get('rest')),
                 data.get('set_group_id'),
                 data.get('note', ''),
                 DataParser.to_int(data.get('order')),
-                rir_cell,
-                input_weight_cell
             ]
             result = self.log_sheet.append_row(row, table_range='A1')
             self._invalidate_log_cache()
-            
-            # Извлекаем номер строки и пишем Total_Weight (M)
             row_number = None
             if result and 'updates' in result:
                 import re
@@ -383,7 +378,6 @@ class GoogleSheetsManager:
                 match = re.search(r'!A(\d+):', updated_range)
                 if match:
                     row_number = int(match.group(1))
-                    self.log_sheet.update_cell(row_number, 13, weight_effective)
                     logger.info(f"Saved workout set at row {row_number}")
             
             return {"success": True, "row_number": row_number}
@@ -401,28 +395,24 @@ class GoogleSheetsManager:
             row_num = data.get('row_number')
             logger.info(f"update_workout_set called with row_number={row_num}, data keys={list(data.keys())}")
             
-            # Стандартные индексы колонок (1-based): D=4 Weight, E=5 Reps, F=6 Rest, J=10 RIR, K=11 Input_Weight, M=13 Total_Weight
-            weight_col, reps_col, rest_col, rir_col, input_weight_col, total_weight_col = 4, 5, 6, 10, 11, 13
-            
-            # Если row_number передан - используем напрямую (надёжный способ)
+            # A=Date, B=Ex_ID, C=Name, D=Input_Weight, E=Total_Weight, F=Reps, G=Rest, H=Set_Group, I=Note, J=Order
+            input_weight_col, total_weight_col, reps_col, rest_col, note_col, order_col = 4, 5, 6, 7, 9, 10
+
             if row_num and isinstance(row_num, int) and row_num > 1:
-                weight = DataParser.to_float(data.get('weight'))
+                total_weight = DataParser.to_float(data.get('weight'))
                 reps = DataParser.to_int(data.get('reps'))
                 rest = DataParser.to_float(data.get('rest'))
-                
-                self.log_sheet.update_cell(row_num, weight_col, weight)
-                self.log_sheet.update_cell(row_num, total_weight_col, weight)
+                self.log_sheet.update_cell(row_num, total_weight_col, total_weight)
                 self.log_sheet.update_cell(row_num, reps_col, reps)
                 self.log_sheet.update_cell(row_num, rest_col, rest)
                 if 'input_weight' in data and data.get('input_weight') is not None:
                     self.log_sheet.update_cell(row_num, input_weight_col, DataParser.to_float(data.get('input_weight')))
-                if 'rir' in data:
-                    rir_val = data.get('rir')
-                    rir_cell = DataParser.to_int(rir_val) if (rir_val is not None and str(rir_val).strip()) else ''
-                    self.log_sheet.update_cell(row_num, rir_col, rir_cell)
-                
+                if 'note' in data:
+                    self.log_sheet.update_cell(row_num, note_col, data.get('note', '') or '')
+                if 'order' in data:
+                    self.log_sheet.update_cell(row_num, order_col, DataParser.to_int(data.get('order')))
                 self._invalidate_log_cache()
-                logger.info(f"Updated workout set row {row_num} directly: weight={weight}, reps={reps}, rest={rest}")
+                logger.info(f"Updated workout set row {row_num}: total_weight={total_weight}, reps={reps}")
                 return True
             
             # Fallback: поиск по exercise_id + set_group_id + order
@@ -445,8 +435,8 @@ class GoogleSheetsManager:
             logger.error("_update_workout_set_by_search: missing required fields")
             return False
 
-        weight_idx, reps_idx, rest_idx = 3, 4, 5
-        ex_id_idx, set_group_idx, order_idx = 1, 6, 8
+        ex_id_idx, set_group_idx, order_idx = 1, 7, 9
+        input_weight_idx, total_weight_idx, reps_idx, rest_idx = 3, 4, 5, 6
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -473,12 +463,12 @@ class GoogleSheetsManager:
                         break
 
                 if row_num:
-                    weight = DataParser.to_float(data.get('weight'))
+                    total_weight = DataParser.to_float(data.get('weight'))
                     reps = DataParser.to_int(data.get('reps'))
                     rest = DataParser.to_float(data.get('rest'))
-                    
-                    self.log_sheet.update_cell(row_num, weight_idx + 1, weight)
-                    self.log_sheet.update_cell(row_num, 13, weight)
+                    if 'input_weight' in data and data.get('input_weight') is not None:
+                        self.log_sheet.update_cell(row_num, input_weight_idx + 1, DataParser.to_float(data.get('input_weight')))
+                    self.log_sheet.update_cell(row_num, total_weight_idx + 1, total_weight)
                     self.log_sheet.update_cell(row_num, reps_idx + 1, reps)
                     self.log_sheet.update_cell(row_num, rest_idx + 1, rest)
                     
@@ -540,17 +530,17 @@ class GoogleSheetsManager:
                     if set_group_idx is None:
                         set_group_idx = i
             
-            # Если не нашли автоматически, используем стандартные индексы
+            # A=Date, B=Ex_ID, C=Name, D=Input_Weight, E=Total_Weight, F=Reps, G=Rest, H=Set_Group, I=Note, J=Order
             if ex_id_idx is None: ex_id_idx = 1
             if date_idx is None: date_idx = 0
-            if weight_idx is None: weight_idx = 3
-            if total_weight_idx is None: total_weight_idx = 12
-            if reps_idx is None: reps_idx = 4
-            if rest_idx is None: rest_idx = 5
-            if set_group_idx is None: set_group_idx = 6
-            if note_idx is None: note_idx = 7
-            if order_idx is None: order_idx = 8
-            if input_weight_idx is None: input_weight_idx = 10  # колонка K
+            if total_weight_idx is None: total_weight_idx = 4
+            if weight_idx is None: weight_idx = 4
+            if reps_idx is None: reps_idx = 5
+            if rest_idx is None: rest_idx = 6
+            if set_group_idx is None: set_group_idx = 7
+            if note_idx is None: note_idx = 8
+            if order_idx is None: order_idx = 9
+            if input_weight_idx is None: input_weight_idx = 3
             
             history_items = []
             last_note = ""
@@ -558,7 +548,7 @@ class GoogleSheetsManager:
             
             # Собираем все записи для данного упражнения
             for row in data_rows:
-                if len(row) <= max(ex_id_idx, date_idx, weight_idx, total_weight_idx or 0, reps_idx, rest_idx, note_idx, order_idx or 0, set_group_idx or 0):
+                if len(row) <= max(ex_id_idx, date_idx, total_weight_idx or 0, reps_idx, rest_idx, note_idx or 0, order_idx or 0, set_group_idx or 0):
                     continue
                 
                 # Получаем ID упражнения из строки
@@ -570,7 +560,7 @@ class GoogleSheetsManager:
                         last_note = str(row[note_idx]).strip()
                     
                     date_val = str(row[date_idx]).split(',')[0].strip() if date_idx < len(row) and row[date_idx] else ''
-                    weight = self._get_weight_from_row(row, weight_idx, total_weight_idx if total_weight_idx is not None else 12)
+                    weight = self._get_weight_from_row(row, total_weight_idx or 4, total_weight_idx if total_weight_idx is not None else 4)
                     reps = DataParser.to_int(row[reps_idx] if reps_idx < len(row) else '')
                     rest = DataParser.to_float(row[rest_idx] if rest_idx < len(row) else '')
                     order = DataParser.to_int(row[order_idx] if order_idx and order_idx < len(row) else '', 0)
@@ -631,12 +621,11 @@ class GoogleSheetsManager:
             all_ex_data = self.get_all_exercises()
             exercises_map = {e['id']: e for e in all_ex_data['exercises']}
             
-            # Индексы: D=3 Weight, M=12 Total_Weight (приоритет для рекордов)
-            ex_id_idx, date_idx, weight_idx, total_weight_idx, reps_idx, rest_idx, order_idx, set_group_idx = 1, 0, 3, 12, 4, 5, 8, 6
-            
+            # A=Date, B=Ex_ID, C=Name, D=Input_Weight, E=Total_Weight, F=Reps, G=Rest, H=Set_Group, I=Note, J=Order
+            ex_id_idx, date_idx, total_weight_idx, reps_idx, rest_idx, order_idx, set_group_idx = 1, 0, 4, 5, 6, 9, 7
             days = {}
             for row in data_rows:
-                if len(row) <= 8: continue
+                if len(row) <= 9: continue
                 date_val = str(row[date_idx]).split(',')[0].strip()
                 if not date_val: continue
                 
@@ -645,7 +634,7 @@ class GoogleSheetsManager:
                 ex_name = ex_info.get('name', 'Unknown')
                 muscle = ex_info.get('muscleGroup', 'Other')
                 
-                weight_val = self._get_weight_from_row(row, weight_idx, total_weight_idx)
+                weight_val = self._get_weight_from_row(row, total_weight_idx, total_weight_idx)
                 
                 if date_val not in days:
                     days[date_val] = {"date": date_val, "muscleGroups": set(), "exercises": []}
@@ -720,24 +709,25 @@ class GoogleSheetsManager:
             return []
 
     def _resolve_log_columns(self, headers: List) -> Dict[str, int]:
-        """Определяет индексы колонок LOG. Total_Weight — приоритет для аналитики и рекордов."""
-        date_idx = ex_id_idx = weight_idx = total_weight_idx = reps_idx = rest_idx = rir_idx = -1
+        """Определяет индексы колонок LOG. Новая структура: A=Date, B=Ex_ID, C=Name, D=Input_Weight, E=Total_Weight, F=Reps, G=Rest, H=Set_Group, I=Note, J=Order."""
+        date_idx = ex_id_idx = total_weight_idx = input_weight_idx = weight_legacy = reps_idx = rest_idx = -1
         for i, header in enumerate(headers):
             h = str(header).lower().strip().replace(' ', '_').replace('-', '_')
             if (date_idx < 0) and ('date' in h or 'дата' in h or 'время' in h): date_idx = i
             elif (ex_id_idx < 0) and ('exercise_id' in h or ('exercise' in h and 'id' in h and 'name' not in h and 'calc' not in h)): ex_id_idx = i
             elif ('total_weight' in h or 'totalweight' in h) and total_weight_idx < 0: total_weight_idx = i
-            elif (weight_idx < 0) and ('weight' in h or 'вес' in h or 'кг' in h) and 'total' not in h: weight_idx = i
+            elif ('input_weight' in h or 'inputweight' in h) and input_weight_idx < 0: input_weight_idx = i
+            elif (weight_legacy < 0) and ('weight' in h or 'вес' in h or 'кг' in h) and 'total' not in h and 'input' not in h: weight_legacy = i
             elif (reps_idx < 0) and ('reps' in h or 'repetitions' in h or 'повтор' in h): reps_idx = i
             elif (rest_idx < 0) and ('rest' in h or 'отдых' in h): rest_idx = i
-            elif 'rir' in h: rir_idx = i
         if date_idx < 0: date_idx = 0
         if ex_id_idx < 0: ex_id_idx = 1
-        if weight_idx < 0: weight_idx = 3
-        if total_weight_idx < 0: total_weight_idx = 12
-        if reps_idx < 0: reps_idx = 4
-        if rest_idx < 0: rest_idx = 5
-        return {'date': date_idx, 'ex_id': ex_id_idx, 'weight': weight_idx, 'total_weight': total_weight_idx, 'reps': reps_idx, 'rest': rest_idx, 'rir': rir_idx}
+        if total_weight_idx < 0: total_weight_idx = 4
+        if input_weight_idx < 0: input_weight_idx = 3
+        if weight_legacy < 0: weight_legacy = total_weight_idx if total_weight_idx >= 0 else 4
+        if reps_idx < 0: reps_idx = 5
+        if rest_idx < 0: rest_idx = 6
+        return {'date': date_idx, 'ex_id': ex_id_idx, 'weight': weight_legacy, 'total_weight': total_weight_idx, 'reps': reps_idx, 'rest': rest_idx}
     
     def _parse_date_flexible(self, raw) -> tuple:
         """Парсинг даты: строки, Google Sheets serial, разные форматы"""
@@ -793,7 +783,7 @@ class GoogleSheetsManager:
             )
             if first_looks_like_date:
                 data_rows = all_values[0:]
-                cols = {'date': 0, 'ex_id': 1, 'weight': 3, 'total_weight': 12, 'reps': 4, 'rest': 5, 'rir': 9}
+                cols = {'date': 0, 'ex_id': 1, 'weight': 4, 'total_weight': 4, 'reps': 5, 'rest': 6}
             else:
                 headers = all_values[0]
                 cols = self._resolve_log_columns(headers)
@@ -801,11 +791,11 @@ class GoogleSheetsManager:
             
             date_idx = cols['date']
             ex_id_idx = cols['ex_id']
-            weight_idx = cols['weight']
-            total_weight_idx = cols.get('total_weight', 12)
+            weight_idx = cols.get('weight', 4)
+            total_weight_idx = cols.get('total_weight', 4)
             reps_idx = cols['reps']
             rest_idx = cols['rest']
-            rir_idx = cols.get('rir', -1) if cols.get('rir', -1) >= 0 else -1
+            rir_idx = -1
             
             all_sets = []
             for row in data_rows:
