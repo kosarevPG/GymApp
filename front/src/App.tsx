@@ -35,6 +35,8 @@ interface Exercise {
   imageUrl2?: string;
   equipmentType?: string;
   weightType?: string;
+  baseWeight?: number;
+  weightMultiplier?: number;
 }
 
 interface WorkoutSet {
@@ -457,10 +459,10 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
+const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; baseWeight?: number; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
   const weightType = getWeightInputType(equipmentType, weightTypeFromRef);
   const formula = WEIGHT_FORMULAS[weightType];
-  const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType);
+  const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType, undefined, baseWeight);
   const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
   const oneRM = displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
   const delta = set.prevWeight ? (displayWeight - set.prevWeight) : 0;
@@ -531,7 +533,7 @@ const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, onUpdate, o
   );
 };
 
-const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompleteSet, onToggleEdit, onNoteChange, onAddSuperset }: any) => {
+const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompleteSet, onToggleEdit, onNoteChange, onAddSuperset, onEditMetadata }: any) => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   
   // PR из истории
@@ -575,7 +577,8 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
   return (
     <Card className="p-4 mb-4">
       <div className="flex justify-between items-start mb-4">
-        <div className="flex-1">
+        <div className="flex-1 flex items-center gap-2">
+            <button onClick={onEditMetadata} className="p-1.5 rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors flex-shrink-0" title="Редактировать расчёт веса"><Pencil className="w-4 h-4" /></button>
             <h2 className="text-xl font-semibold text-zinc-50">{exerciseData.exercise.name}</h2>
         </div>
         {/* PR Badge - крупный и заметный */}
@@ -601,7 +604,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       </div>
       <div className="space-y-1">
         {exerciseData.sets.map((set: any) => (
-          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} weightType={exerciseData.exercise.weightType} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
+          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} weightType={exerciseData.exercise.weightType} baseWeight={exerciseData.exercise.baseWeight} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -739,7 +742,7 @@ const ExercisesListScreen = ({ exercises, title, onBack, onSelectExercise, onAdd
   );
 };
 
-const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, haptic, notify }: any) => {
+const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, haptic, notify, onUpdateExercise }: any) => {
   // ВОССТАНОВЛЕНИЕ СОСТОЯНИЯ: Проверяем наличие незавершенной тренировки
   const getSavedSession = () => {
     try {
@@ -767,6 +770,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [supersetSearchQuery, setSupersetSearchQuery] = useState('');
+  const [exerciseToEditMetadata, setExerciseToEditMetadata] = useState<Exercise | null>(null);
 
   // АВТОСОХРАНЕНИЕ: Сохраняем при любом изменении данных
   useEffect(() => {
@@ -877,6 +881,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     rowNumber?: number;
     equipmentType?: string;
     weightType?: string;
+    baseWeight?: number;
   } | null>(null);
   
   useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
@@ -889,7 +894,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     const exercise = sessionData[exId].exercise;
     const weightType = getWeightInputType(exercise?.equipmentType, exercise?.weightType);
     const inputWeight = parseFloat(set.weight);
-    const effectiveWeight = calcEffectiveWeight(set.weight, weightType) ?? inputWeight;
+    const effectiveWeight = calcEffectiveWeight(set.weight, weightType, undefined, exercise?.baseWeight) ?? inputWeight;
     
     haptic('medium');
     const order = incrementOrder();
@@ -942,7 +947,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           rest: set.rest,
           rowNumber: set.rowNumber,
           equipmentType: exercise?.equipmentType,
-          weightType: exercise?.weightType
+          weightType: exercise?.weightType,
+          baseWeight: exercise?.baseWeight
         };
         
         // Очищаем предыдущий таймер и запускаем новый
@@ -955,7 +961,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           console.log('Sending update with row_number:', data.rowNumber);
           
           try {
-            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType)) ?? (parseFloat(data.weight) || 0);
+            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType), undefined, data.baseWeight) ?? (parseFloat(data.weight) || 0);
             const result = await api.updateSet({
               row_number: data.rowNumber,
               exercise_id: data.exId,
@@ -1032,7 +1038,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
         {activeExercises.map(exId => {
             const data = sessionData[exId];
             if (!data) return <div key={exId} className="h-40 bg-zinc-900 rounded-2xl animate-pulse" />;
-            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onToggleEdit={(sid: string) => handleToggleEdit(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} />;
+            return <WorkoutCard key={exId} exerciseData={data} onAddSet={() => handleAddSet(exId)} onUpdateSet={(sid: string, f: string, v: string) => handleUpdateSet(exId, sid, f, v)} onDeleteSet={(sid: string) => handleDeleteSet(exId, sid)} onCompleteSet={(sid: string) => handleCompleteSet(exId, sid)} onToggleEdit={(sid: string) => handleToggleEdit(exId, sid)} onNoteChange={(val: string) => setSessionData(p => ({...p, [exId]: {...p[exId], note: val}}))} onAddSuperset={() => setIsAddModalOpen(true)} onEditMetadata={() => setExerciseToEditMetadata(data.exercise)} />;
         })}
       </div>
       <div className="px-4 mt-8 mb-20"><Button variant="primary" onClick={handleFinish} className="w-full h-14 text-lg font-semibold shadow-xl shadow-blue-900/20">Завершить упражнение</Button></div>
@@ -1077,6 +1083,21 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           </div>
         </div>
       </Modal>
+      <EditExerciseMetadataModal
+        isOpen={!!exerciseToEditMetadata}
+        onClose={() => setExerciseToEditMetadata(null)}
+        exercise={exerciseToEditMetadata}
+        onSave={async (id, updates) => {
+          const result = await api.updateExercise(id, updates);
+          if (result?.status === 'success') {
+            setSessionData(prev => {
+              if (!prev[id]) return prev;
+              return { ...prev, [id]: { ...prev[id], exercise: { ...prev[id].exercise, ...updates } } };
+            });
+            onUpdateExercise?.(id, updates);
+          }
+        }}
+      />
       <div className="fixed bottom-6 left-6 z-20"><button onClick={handleFinish} className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-700 shadow-lg hover:text-white"><ArrowLeft className="w-6 h-6" /></button></div>
     </div>
   );
@@ -1414,6 +1435,104 @@ const HistoryScreen = ({ onBack }: any) => {
             </div>
         </motion.div>
     );
+};
+
+/** Модалка редактирования метаданных веса (Type, Base_Wt, Multiplier) — открывается из экрана подходов */
+const EditExerciseMetadataModal = ({ isOpen, onClose, exercise, onSave }: { isOpen: boolean; onClose: () => void; exercise: Exercise | null; onSave: (id: string, updates: { weightType: string; baseWeight: number; weightMultiplier: number }) => Promise<void> }) => {
+  const TYPES = ['Barbell', 'Plate_Loaded', 'Dumbbell', 'Machine', 'Assisted', 'Bodyweight'] as const;
+  const [type, setType] = useState<string>('Dumbbell');
+  const [baseWeight, setBaseWeight] = useState(0);
+  const [multiplier, setMultiplier] = useState(1);
+  const [testInput, setTestInput] = useState('10');
+  const [testBodyWt, setTestBodyWt] = useState(90);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (exercise && isOpen) {
+      setType(exercise.weightType || 'Dumbbell');
+      setBaseWeight(exercise.baseWeight ?? 0);
+      setMultiplier(exercise.weightMultiplier ?? 1);
+    }
+  }, [exercise, isOpen]);
+
+  const weightInputType = getWeightInputType(undefined, type);
+  const formula = WEIGHT_FORMULAS[weightInputType];
+  const testInputNum = parseFloat(testInput) || 0;
+  const effective = !isNaN(testInputNum) && testInputNum >= 0
+    ? formula.toEffective(testInputNum, testBodyWt, baseWeight)
+    : null;
+  const volume = effective && testInputNum >= 0 ? effective * 10 : null; // reps=10 для примера
+
+  const inputHint = type === 'Barbell' || type === 'Plate_Loaded' ? 'Блины с одной стороны' 
+    : type === 'Dumbbell' ? 'Вес одной гантели' 
+    : type === 'Machine' ? 'Цифра на плитке' 
+    : type === 'Assisted' ? 'Помощь на стеке (гравитрон)' 
+    : type === 'Bodyweight' ? 'Доп. отягощение (пояс)' 
+    : 'Вес';
+
+  const handleSave = async () => {
+    if (!exercise) return;
+    setSaving(true);
+    try {
+      await onSave(exercise.id, { weightType: type, baseWeight, weightMultiplier: multiplier });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!exercise) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Расчёт веса: ${exercise.name}`}>
+      <div className="space-y-5">
+        <div>
+          <label className="text-sm text-zinc-400 mb-2 block">Тип</label>
+          <select value={type} onChange={e => setType(e.target.value)} className="w-full h-12 bg-zinc-800 rounded-xl px-4 text-zinc-100 focus:ring-1 focus:ring-blue-500 outline-none">
+            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm text-zinc-400 mb-2 block">База (Base_Wt), кг</label>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBaseWeight(Math.max(0, baseWeight - 2.5))} className="w-12 h-12 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center text-xl font-bold hover:bg-zinc-700">−</button>
+            <span className="flex-1 text-center text-xl font-bold text-zinc-100 tabular-nums">{baseWeight}</span>
+            <button onClick={() => setBaseWeight(baseWeight + 2.5)} className="w-12 h-12 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center text-xl font-bold hover:bg-zinc-700">+</button>
+          </div>
+        </div>
+        <div>
+          <label className="text-sm text-zinc-400 mb-2 block">Multiplier (ввод одной стороны)</label>
+          <div className="flex gap-2">
+            <button onClick={() => setMultiplier(1)} className={`flex-1 py-2 rounded-xl text-sm font-medium ${multiplier === 1 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>1</button>
+            <button onClick={() => setMultiplier(2)} className={`flex-1 py-2 rounded-xl text-sm font-medium ${multiplier === 2 ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>2</button>
+          </div>
+        </div>
+        <div className="text-xs text-zinc-500">{inputHint}</div>
+        <div className="pt-3 border-t border-zinc-800">
+          <label className="text-sm text-zinc-400 mb-2 block">Проверка на примере</label>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <span className="text-xs text-zinc-500">Input, кг</span>
+              <input type="number" value={testInput} onChange={e => setTestInput(e.target.value)} className="w-full h-10 bg-zinc-800 rounded-lg px-2 text-zinc-100 text-sm" />
+            </div>
+            {(type === 'Assisted' || type === 'Bodyweight') && (
+              <div>
+                <span className="text-xs text-zinc-500">Вес тела, кг</span>
+                <input type="number" value={testBodyWt} onChange={e => setTestBodyWt(Number(e.target.value) || 90)} className="w-full h-10 bg-zinc-800 rounded-lg px-2 text-zinc-100 text-sm" />
+              </div>
+            )}
+          </div>
+          {effective !== null && (
+            <div className="text-sm space-y-1">
+              <div className="text-blue-400">Effective: {effective} кг</div>
+              {volume !== null && <div className="text-zinc-500">Volume (×10 повт): {volume} кг</div>}
+            </div>
+          )}
+        </div>
+        <Button onClick={handleSave} disabled={saving} className="w-full">Сохранить</Button>
+      </div>
+    </Modal>
+  );
 };
 
 const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: any) => {
@@ -1789,7 +1908,7 @@ const App = () => {
       {screen === 'analytics' && <AnalyticsScreen onBack={() => setScreen('home')} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
       {screen === 'exercises' && <ExercisesListScreen exercises={filteredExercises} allExercises={allExercises} title={selectedGroup || (searchQuery ? `Поиск: ${searchQuery}` : 'Все упражнения')} searchQuery={searchQuery} onSearch={(q: string) => setSearchQuery(q)} onBack={() => { setSearchQuery(''); setSelectedGroup(null); setScreen('home'); }} onSelectExercise={(ex: Exercise) => { haptic('light'); setCurrentExercise(ex); setScreen('workout'); }} onAddExercise={() => setIsCreateModalOpen(true)} onEditExercise={(ex: Exercise) => setExerciseToEdit(ex)} />}
-      {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} />}
+      {screen === 'workout' && currentExercise && <WorkoutScreen initialExercise={currentExercise} allExercises={allExercises} incrementOrder={incrementOrder} haptic={haptic} notify={notify} onBack={() => setScreen('exercises')} onUpdateExercise={handleUpdate} />}
       
       <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Новое упражнение">
          <div className="space-y-4">

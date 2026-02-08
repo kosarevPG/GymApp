@@ -113,8 +113,9 @@ class GoogleSheetsManager:
         self._log_cache_timestamp = None
         logger.debug("LOG cache invalidated")
     
-    def _get_ref_exercises_map(self) -> Dict[str, str]:
-        """Читает REF_Exercises и возвращает ex_id -> Type (Barbell, Dumbbell, Machine, Plate_Loaded, Assisted, Bodyweight)"""
+    def _get_ref_exercises_map(self) -> Dict[str, Dict]:
+        """Читает REF_Exercises и возвращает ex_id -> {type, base_wt, multiplier}.
+        Колонки: A=ID, B=Name, C=Type, D=Base_Wt, E=Multiplier"""
         try:
             ref_ex = self.spreadsheet.worksheet('REF_Exercises')
             rows = ref_ex.get_all_values()
@@ -122,11 +123,14 @@ class GoogleSheetsManager:
                 return {}
             result = {}
             for row in rows[1:]:
-                if len(row) >= 3:
+                if len(row) >= 1 and str(row[0]).strip():
                     ex_id = str(row[0]).strip()
-                    t = str(row[2]).strip()
-                    if ex_id and t:
-                        result[ex_id] = t
+                    t = str(row[2]).strip() if len(row) >= 3 else ''
+                    base_wt = DataParser.to_float(row[3], 0) if len(row) >= 4 else 0
+                    mult = DataParser.to_int(row[4], 1) if len(row) >= 5 else 1
+                    if mult not in (1, 2):
+                        mult = 1
+                    result[ex_id] = {'type': t, 'base_wt': base_wt, 'multiplier': mult}
             return result
         except Exception:
             return {}
@@ -212,8 +216,26 @@ class GoogleSheetsManager:
                 if not ex_type or ex_type not in ('compound', 'isolation'):
                     ex_type = self._infer_exercise_type(name_val or '')
                 
-                # weightType из REF_Exercises (Barbell, Dumbbell, Machine, Plate_Loaded, Assisted, Bodyweight)
-                weight_type = ref_types.get(id_val, '') if id_val else ''
+                # Метаданные веса из REF_Exercises (Type, Base_Wt, Multiplier)
+                ref_data = ref_types.get(id_val, {}) if id_val else {}
+                if isinstance(ref_data, str):
+                    ref_data = {'type': ref_data, 'base_wt': 0, 'multiplier': 1}
+                weight_type = ref_data.get('type', '') or ''
+                base_wt = ref_data.get('base_wt', 0)
+                multiplier = ref_data.get('multiplier', 1)
+                # Fallback: если нет в REF_Exercises — infer по equipment/name
+                if not weight_type:
+                    n = (name_val or '').lower()
+                    if 'assist' in n or 'гравитрон' in n:
+                        weight_type, base_wt, multiplier = 'Assisted', 0, 1
+                    elif equipment == 'barbell':
+                        weight_type, base_wt, multiplier = 'Barbell', 20, 2
+                    elif equipment == 'machine':
+                        weight_type, base_wt, multiplier = 'Plate_Loaded', 50, 2
+                    elif equipment == 'dumbbell':
+                        weight_type, base_wt, multiplier = 'Dumbbell', 0, 1
+                    else:
+                        weight_type, base_wt, multiplier = 'Dumbbell', 0, 1
                 
                 exercises.append({
                     'id': id_val,
@@ -224,7 +246,9 @@ class GoogleSheetsManager:
                     'imageUrl2': image_url2,
                     'equipmentType': equipment or 'barbell',
                     'exerciseType': ex_type or 'compound',
-                    'weightType': weight_type
+                    'weightType': weight_type,
+                    'baseWeight': base_wt,
+                    'weightMultiplier': multiplier
                 })
             
             # Сортируем упражнения по имени (Name)
@@ -239,11 +263,26 @@ class GoogleSheetsManager:
         new_id = str(uuid.uuid4())
         eq = equipment_type or self._infer_equipment(name, '')
         ex_t = exercise_type or self._infer_exercise_type(name)
+        # Определяем Type и Base_Wt для REF_Exercises по equipment
+        eq_lower = (eq or '').lower()
+        if eq_lower == 'barbell':
+            ref_type, ref_base, ref_mult = 'Barbell', 20, 2
+        elif eq_lower == 'machine':
+            ref_type, ref_base, ref_mult = 'Plate_Loaded', 50, 2
+        elif 'assist' in (name or '').lower() or 'гравитрон' in (name or '').lower():
+            ref_type, ref_base, ref_mult = 'Assisted', 0, 1
+        else:
+            ref_type, ref_base, ref_mult = 'Dumbbell', 0, 1
         # ID, Name, Muscle Group, Description, Image_URL, Image_URL2, Equipment_Type, Exercise_Type
         row = [new_id, name, group, "", "", "", eq, ex_t]
         try:
             self.exercises_sheet.append_row(row)
-            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": "", "equipmentType": eq, "exerciseType": ex_t}
+            try:
+                ref_ex = self.spreadsheet.worksheet('REF_Exercises')
+                ref_ex.append_row([new_id, name, ref_type, ref_base, ref_mult])
+            except Exception:
+                pass
+            return {"id": new_id, "name": name, "muscleGroup": group, "description": "", "imageUrl": "", "imageUrl2": "", "equipmentType": eq, "exerciseType": ex_t, "weightType": ref_type, "baseWeight": ref_base, "weightMultiplier": ref_mult}
         except Exception as e:
             logger.error(f"Create exercise error: {e}")
             raise
@@ -324,10 +363,45 @@ class GoogleSheetsManager:
                 et = data['exerciseType'] or 'compound'
                 if et in ('compound', 'isolation'):
                     self.exercises_sheet.update_cell(row_num, exercise_type_col, et)
+            
+            # Метаданные веса: Type, Base_Wt, Multiplier → REF_Exercises
+            if any(k in data for k in ('weightType', 'baseWeight', 'weightMultiplier')):
+                self._update_ref_exercise(ex_id, {
+                    'type': data.get('weightType') if 'weightType' in data else None,
+                    'base_wt': data.get('baseWeight') if 'baseWeight' in data else None,
+                    'multiplier': data.get('weightMultiplier') if 'weightMultiplier' in data else None
+                })
                 
             return True
         except Exception as e:
             logger.error(f"Update exercise error: {e}", exc_info=True)
+            return False
+
+    def _update_ref_exercise(self, ex_id: str, data: Dict) -> bool:
+        """Обновить запись в REF_Exercises (Type, Base_Wt, Multiplier). Создаёт строку если нет."""
+        try:
+            ref_ex = self.spreadsheet.worksheet('REF_Exercises')
+            rows = ref_ex.get_all_values()
+            if len(rows) < 2:
+                ref_ex.append_row([ex_id, '', data.get('type', 'Dumbbell'), data.get('base_wt', 0), data.get('multiplier', 1)])
+                return True
+            # Ищем строку по ID
+            for i, row in enumerate(rows[1:], start=2):
+                if len(row) >= 1 and str(row[0]).strip() == ex_id:
+                    cols = [2, 3, 4, 5]  # B=Name, C=Type, D=Base_Wt, E=Multiplier
+                    if 'type' in data and data['type'] is not None:
+                        ref_ex.update_cell(i, 3, str(data['type']))
+                    if 'base_wt' in data and data['base_wt'] is not None:
+                        ref_ex.update_cell(i, 4, float(data['base_wt']))
+                    if 'multiplier' in data and data['multiplier'] is not None:
+                        m = int(data['multiplier'])
+                        ref_ex.update_cell(i, 5, m if m in (1, 2) else 1)
+                    return True
+            # Не найдено — добавляем новую строку
+            ref_ex.append_row([ex_id, '', data.get('type', 'Dumbbell'), data.get('base_wt', 0), data.get('multiplier', 1)])
+            return True
+        except Exception as e:
+            logger.error(f"Update REF_Exercise error: {e}", exc_info=True)
             return False
 
     def save_workout_set(self, data: Dict) -> Dict:
