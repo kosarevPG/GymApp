@@ -7,7 +7,9 @@
 
 import os
 import sys
+import time
 from dotenv import load_dotenv
+from gspread.utils import rowcol_to_a1
 
 load_dotenv()
 
@@ -78,7 +80,8 @@ def main():
                 'multiplier': int(float(str(row[4]).replace(',', '.'))) if len(row) > 4 and row[4] else 1
             }
     
-    updated = 0
+    # Собираем (row_index, [type, base_wt, multiplier]) для каждого упражнения с данными
+    to_update = []
     for i, row in enumerate(ex_rows[1:], start=2):
         if len(row) <= id_col:
             continue
@@ -86,10 +89,34 @@ def main():
         ref_data = ref_map.get(ex_id)
         if not ref_data:
             continue
-        ex_sheet.update_cell(i, wt_col + 1, ref_data['type'])
-        ex_sheet.update_cell(i, base_col + 1, ref_data['base_wt'])
-        ex_sheet.update_cell(i, mult_col + 1, ref_data['multiplier'])
-        updated += 1
+        to_update.append((i, [ref_data['type'], ref_data['base_wt'], ref_data['multiplier']]))
+    
+    if not to_update:
+        print("Нет данных для миграции")
+        sys.exit(0)
+    
+    # Батч: Google Sheets API принимает непрерывные диапазоны
+    # Группируем по строкам подряд
+    batch_size = 20
+    updated = 0
+    i = 0
+    while i < len(to_update):
+        batch = to_update[i:i + batch_size]
+        start_row = batch[0][0]
+        end_row = batch[-1][0]
+        values = [b[1] for b in batch]
+        start_cell = rowcol_to_a1(start_row, wt_col + 1)
+        end_cell = rowcol_to_a1(end_row, mult_col + 1)
+        range_str = f"'{ex_sheet.title}'!{start_cell}:{end_cell}"
+        ex_sheet.spreadsheet.values_update(
+            range_str,
+            params={'valueInputOption': 'USER_ENTERED'},
+            body={'values': values}
+        )
+        updated += len(batch)
+        i += batch_size
+        if i < len(to_update):
+            time.sleep(2)
     
     print(f"Мигрировано {updated} упражнений из REF_Exercises в EXERCISES")
     print("REF_Exercises можно удалить вручную из таблицы.")
