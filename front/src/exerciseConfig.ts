@@ -9,12 +9,21 @@ export type WeightInputType = 'barbell' | 'plate_loaded' | 'assisted' | 'dumbbel
 export interface WeightFormula {
   placeholder: string;
   label: string;
-  /** input, bodyWeight?, baseWeight? → effective load */
-  toEffective: (input: number, userBodyWeight?: number, baseWeight?: number) => number;
-  toInput?: (effective: number, userBodyWeight?: number, baseWeight?: number) => number;
+  /** input, bodyWeight?, baseWeight?, multiplier? → effective load */
+  toEffective: (input: number, userBodyWeight?: number, baseWeight?: number, multiplier?: number) => number;
+  toInput?: (effective: number, userBodyWeight?: number, baseWeight?: number, multiplier?: number) => number;
 }
 
-const USER_BODY_WEIGHT_DEFAULT = 90;
+export const BODY_WEIGHT_DEFAULT = 90;
+
+const USER_BODY_WEIGHT_DEFAULT = BODY_WEIGHT_DEFAULT;
+
+export const WEIGHT_TYPES = ['Barbell', 'Plate_Loaded', 'Dumbbell', 'Machine', 'Assisted', 'Bodyweight'] as const;
+
+/** 1RM методологически некорректен для Assisted/Bodyweight */
+export function allows1rm(type: WeightInputType): boolean {
+  return type !== 'assisted' && type !== 'bodyweight';
+}
 
 /** Дефолтные Base_Wt по типу (если не заданы в REF_Exercises) */
 const DEFAULT_BASE: Record<WeightInputType, number> = {
@@ -31,14 +40,14 @@ export const WEIGHT_FORMULAS: Record<WeightInputType, WeightFormula> = {
   barbell: {
     placeholder: '0',
     label: '×1 блин',
-    toEffective: (input, _, base = DEFAULT_BASE.barbell) => input * 2 + base,
-    toInput: (effective, _, base = DEFAULT_BASE.barbell) => Math.round((effective - base) / 2),
+    toEffective: (input, _, base = DEFAULT_BASE.barbell, mult = 2) => input * (mult || 1) + base,
+    toInput: (effective, _, base = DEFAULT_BASE.barbell, mult = 2) => Math.round((effective - base) / (mult || 1)),
   },
   plate_loaded: {
     placeholder: '0',
     label: '×1 блин',
-    toEffective: (input, _, base = DEFAULT_BASE.plate_loaded) => input * 2 + base,
-    toInput: (effective, _, base = DEFAULT_BASE.plate_loaded) => Math.round((effective - base) / 2),
+    toEffective: (input, _, base = DEFAULT_BASE.plate_loaded, mult = 2) => input * (mult || 1) + base,
+    toInput: (effective, _, base = DEFAULT_BASE.plate_loaded, mult = 2) => Math.round((effective - base) / (mult || 1)),
   },
   assisted: {
     placeholder: '0',
@@ -49,14 +58,14 @@ export const WEIGHT_FORMULAS: Record<WeightInputType, WeightFormula> = {
   dumbbell: {
     placeholder: '0',
     label: 'кг',
-    toEffective: (input, _, base = 0) => input + base,
-    toInput: (effective, _, base = 0) => Math.round(effective - base),
+    toEffective: (input, _, base = 0, mult = 1) => input * (mult || 1) + base,
+    toInput: (effective, _, base = 0, mult = 1) => Math.round((effective - base) / (mult || 1)),
   },
   machine: {
     placeholder: '0',
     label: 'кг',
-    toEffective: (input, _, base = 0) => input + base,
-    toInput: (effective, _, base = 0) => Math.round(effective - base),
+    toEffective: (input, _, base = 0, mult = 1) => input * (mult || 1) + base,
+    toInput: (effective, _, base = 0, mult = 1) => Math.round((effective - base) / (mult || 1)),
   },
   bodyweight: {
     placeholder: '0',
@@ -67,8 +76,8 @@ export const WEIGHT_FORMULAS: Record<WeightInputType, WeightFormula> = {
   standard: {
     placeholder: '0',
     label: 'кг',
-    toEffective: (input, _, base = 0) => input + base,
-    toInput: (effective, _, base = 0) => Math.round(effective - base),
+    toEffective: (input, _, base = 0, mult = 1) => input * (mult || 1) + base,
+    toInput: (effective, _, base = 0, mult = 1) => Math.round((effective - base) / (mult || 1)),
   },
 };
 
@@ -94,11 +103,13 @@ export function calcEffectiveWeight(
   inputStr: string,
   type: WeightInputType,
   userBodyWeight?: number,
-  baseWeight?: number
+  baseWeight?: number,
+  weightMultiplier?: number
 ): number | null {
   const input = parseFloat(inputStr);
   if (isNaN(input) || input < 0) return null;
   const formula = WEIGHT_FORMULAS[type];
   const base = baseWeight ?? DEFAULT_BASE[type];
-  return formula.toEffective(input, userBodyWeight ?? USER_BODY_WEIGHT_DEFAULT, base);
+  const mult = (weightMultiplier === 1 || weightMultiplier === 2) ? weightMultiplier : undefined;
+  return formula.toEffective(input, userBodyWeight ?? USER_BODY_WEIGHT_DEFAULT, base, mult);
 }

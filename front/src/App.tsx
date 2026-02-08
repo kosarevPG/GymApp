@@ -417,10 +417,10 @@ const HistoryListModal = ({ isOpen, onClose, history, exerciseName }: any) => {
   );
 };
 
-const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; baseWeight?: number; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
+const SetRow = ({ set, equipmentType, weightType: weightTypeFromRef, baseWeight, weightMultiplier, onUpdate, onDelete, onComplete, onToggleEdit }: { set: any; equipmentType?: string; weightType?: string; baseWeight?: number; weightMultiplier?: number; onUpdate: (sid: string, field: string, value: string) => void; onDelete: (sid: string) => void; onComplete: (sid: string) => void; onToggleEdit: (sid: string) => void }) => {
   const weightType = getWeightInputType(equipmentType, weightTypeFromRef);
   const formula = WEIGHT_FORMULAS[weightType];
-  const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType, undefined, baseWeight);
+  const effectiveWeight = calcEffectiveWeight(set.weight || '', weightType, undefined, baseWeight, weightMultiplier);
   const displayWeight = set.completed ? (set.effectiveWeight ?? (parseFloat(set.weight) || 0)) : (effectiveWeight ?? (parseFloat(set.weight) || 0));
   const show1rm = allows1rm(weightType);
   const oneRM = show1rm && displayWeight && set.reps ? Math.round(displayWeight * (1 + parseInt(set.reps) / 30)) : 0;
@@ -569,7 +569,7 @@ const WorkoutCard = ({ exerciseData, onAddSet, onUpdateSet, onDeleteSet, onCompl
       </div>
       <div className="space-y-1">
         {exerciseData.sets.map((set: any) => (
-          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} weightType={exerciseData.exercise.weightType} baseWeight={exerciseData.exercise.baseWeight} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
+          <SetRow key={set.id} set={set} equipmentType={exerciseData.exercise.equipmentType} weightType={exerciseData.exercise.weightType} baseWeight={exerciseData.exercise.baseWeight} weightMultiplier={exerciseData.exercise.weightMultiplier} onUpdate={onUpdateSet} onDelete={onDeleteSet} onComplete={onCompleteSet} onToggleEdit={onToggleEdit} />
         ))}
       </div>
       <div className="flex gap-2 mt-4">
@@ -808,6 +808,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     equipmentType?: string;
     weightType?: string;
     baseWeight?: number;
+    weightMultiplier?: number;
   } | null>(null);
   
   useEffect(() => () => { if (updateSetDebounceRef.current) clearTimeout(updateSetDebounceRef.current); }, []);
@@ -820,7 +821,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     const exercise = sessionData[exId].exercise;
     const weightType = getWeightInputType(exercise?.equipmentType, exercise?.weightType);
     const inputWeight = parseFloat(set.weight);
-    const effectiveWeight = calcEffectiveWeight(set.weight, weightType, undefined, exercise?.baseWeight) ?? inputWeight;
+    const effectiveWeight = calcEffectiveWeight(set.weight, weightType, undefined, exercise?.baseWeight, exercise?.weightMultiplier) ?? inputWeight;
     
     haptic('medium');
     const order = incrementOrder();
@@ -875,7 +876,8 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           rowNumber: set.rowNumber,
           equipmentType: exercise?.equipmentType,
           weightType: exercise?.weightType,
-          baseWeight: exercise?.baseWeight
+          baseWeight: exercise?.baseWeight,
+          weightMultiplier: exercise?.weightMultiplier
         };
         
         // Очищаем предыдущий таймер и запускаем новый
@@ -886,7 +888,7 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
           if (!data) return;
           
           try {
-            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType), undefined, data.baseWeight) ?? (parseFloat(data.weight) || 0);
+            const effective = calcEffectiveWeight(data.weight, getWeightInputType(data.equipmentType, data.weightType), undefined, data.baseWeight, data.weightMultiplier) ?? (parseFloat(data.weight) || 0);
             const result = await api.updateSet({
               row_number: data.rowNumber,
               exercise_id: data.exId,
@@ -1531,7 +1533,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                                 {(() => {
                                     const wt = getWeightInputType(undefined, weightType);
                                     const f = WEIGHT_FORMULAS[wt];
-                                    const eff = !isNaN(parseFloat(testInput) || 0) ? f.toEffective(parseFloat(testInput) || 0, testBodyWt, baseWeight) : null;
+                                    const eff = !isNaN(parseFloat(testInput) || 0) ? f.toEffective(parseFloat(testInput) || 0, testBodyWt, baseWeight, weightMultiplier) : null;
                                     return eff !== null ? <span className="text-blue-400 text-sm">→ {eff} кг</span> : null;
                                 })()}
                             </div>
