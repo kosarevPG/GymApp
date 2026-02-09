@@ -242,7 +242,7 @@ const useDebounce = <T,>(value: T, delay: number): T => {
 
 const useSession = () => {
   const [sessionId, setSessionId] = useState('');
-  const [orderCounter, setOrderCounter] = useState(0);
+  const orderCounterRef = useRef(0);
 
   useEffect(() => {
     const lastActive = localStorage.getItem(LAST_ACTIVE_KEY);
@@ -253,18 +253,18 @@ const useSession = () => {
     if (!lastActive || (now - parseInt(lastActive)) > 14400000 || !savedSession) {
       const newId = crypto.randomUUID();
       setSessionId(newId);
-      setOrderCounter(0);
+      orderCounterRef.current = 0;
       localStorage.setItem(SESSION_ID_KEY, newId);
     } else {
+      orderCounterRef.current = parseInt(savedOrder || '0');
       setSessionId(savedSession);
-      setOrderCounter(parseInt(savedOrder || '0'));
     }
     localStorage.setItem(LAST_ACTIVE_KEY, now.toString());
   }, []);
 
   const incrementOrder = () => {
-    const next = orderCounter + 1;
-    setOrderCounter(next);
+    orderCounterRef.current += 1;
+    const next = orderCounterRef.current;
     localStorage.setItem(ORDER_COUNTER_KEY, next.toString());
     localStorage.setItem(LAST_ACTIVE_KEY, Date.now().toString());
     return next;

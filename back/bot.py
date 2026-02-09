@@ -53,6 +53,8 @@ except Exception as e:
     logger.critical(f"Failed to init sheets: {e}")
     sheets = None
 
+save_set_lock = asyncio.Lock()
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     logger.info(f"Command /start received. Using WEBAPP_URL: {WEBAPP_URL}")
@@ -142,7 +144,8 @@ async def api_confirm_baseline(request):
 async def api_save_set(request):
     try:
         data = await request.json()
-        result = sheets.save_workout_set(data)
+        async with save_set_lock:
+            result = sheets.save_workout_set(data)
         if result.get('success'):
             return json_response({
                 "status": "success",
