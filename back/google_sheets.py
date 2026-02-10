@@ -15,6 +15,9 @@ from datetime import datetime, timezone, timedelta
 # Московское время (UTC+3)
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
+# Группы по умолчанию для выбора при создании упражнения (если в EXERCISES ещё нет строк)
+DEFAULT_GROUPS = ['Спина', 'Ноги', 'Грудь', 'Плечи', 'Трицепс', 'Бицепс', 'Пресс', 'Кардио']
+
 logger = logging.getLogger(__name__)
 
 class DataParser:
@@ -244,10 +247,12 @@ class GoogleSheetsManager:
             # Сортируем упражнения по имени (Name)
             exercises.sort(key=lambda x: x.get('name', '').lower())
             
-            return {"groups": sorted(list(groups)), "exercises": exercises}
+            # Группы — уникальные значения из столбца Muscle Group; если пусто — список по умолчанию
+            groups_list = sorted(list(groups)) if groups else DEFAULT_GROUPS
+            return {"groups": groups_list, "exercises": exercises}
         except Exception as e:
             logger.error(f"Get exercises error: {e}")
-            return {"groups": [], "exercises": []}
+            return {"groups": DEFAULT_GROUPS, "exercises": []}
 
     def create_exercise(self, name: str, group: str, equipment_type: str = None, exercise_type: str = None) -> Dict:
         new_id = str(uuid.uuid4())
