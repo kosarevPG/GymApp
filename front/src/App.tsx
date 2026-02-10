@@ -1357,26 +1357,46 @@ const AnalyticsScreen = ({ onBack }: any) => {
 
 const HistoryScreen = ({ onBack }: any) => {
     const [history, setHistory] = useState<GlobalWorkoutSession[]>([]);
-    const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [expandedIds, setExpandedIds] = useState<string[]>([]);
     useEffect(() => { 
         api.getGlobalHistory().then(data => setHistory(data));
     }, []);
+
+    const isExpanded = (id: string) => expandedIds.includes(id);
+    const allExpanded = history.length > 0 && expandedIds.length === history.length;
+    const toggleWorkout = (id: string) => {
+        setExpandedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+    const expandOrCollapseAll = () => {
+        if (allExpanded) setExpandedIds([]);
+        else setExpandedIds(history.map(w => w.id));
+    };
 
     return (
         <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="min-h-screen bg-zinc-950">
             <ScreenHeader title="История" onBack={onBack} />
             <div className="p-4 space-y-4 pb-20">
+                {history.length > 0 && (
+                    <div className="flex justify-end">
+                        <button
+                            onClick={expandOrCollapseAll}
+                            className="text-sm font-medium text-blue-400 hover:text-blue-300 px-3 py-1.5 rounded-lg bg-blue-500/10 active:bg-blue-500/20"
+                        >
+                            {allExpanded ? 'Свернуть все' : 'Развернуть все'}
+                        </button>
+                    </div>
+                )}
                 {history.map(w => (
                     <Card key={w.id} className="overflow-hidden">
-                        <div onClick={() => setExpandedId(expandedId === w.id ? null : w.id)} className="p-4 flex items-center justify-between cursor-pointer active:bg-zinc-800/50">
+                        <div onClick={() => toggleWorkout(w.id)} className="p-4 flex items-center justify-between cursor-pointer active:bg-zinc-800/50">
                             <div>
                                 <div className="flex items-center gap-2 mb-1 text-zinc-400 text-sm"><Calendar className="w-3 h-3" />{w.date}<span className="text-zinc-600">•</span>{w.duration}</div>
                                 <div className="font-semibold text-zinc-200">{w.muscleGroups.join(' • ')}</div>
                             </div>
-                            <ChevronDown className={`w-5 h-5 text-zinc-500 transition-transform ${expandedId === w.id ? 'rotate-180' : ''}`} />
+                            <ChevronDown className={`w-5 h-5 text-zinc-500 transition-transform ${isExpanded(w.id) ? 'rotate-180' : ''}`} />
                         </div>
                         <AnimatePresence>
-                            {expandedId === w.id && (
+                            {isExpanded(w.id) && (
                                 <motion.div 
                                     initial={{ height: 0, opacity: 0 }} 
                                     animate={{ height: 'auto', opacity: 1 }} 
