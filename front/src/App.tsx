@@ -3,7 +3,8 @@ import {
   Search, ChevronRight, Plus, X, Info, 
   Check, Trash2, StickyNote, ChevronDown, Dumbbell, Calendar, 
   Settings, ArrowLeft, Pencil, Trophy,
-  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, AlertTriangle
+  History as HistoryIcon, Activity, Link as LinkIcon, BarChart3, AlertTriangle,
+  Cloud, CloudOff, RefreshCw
 } from 'lucide-react';
 import { getWeightInputType, calcEffectiveWeight, WEIGHT_FORMULAS, BODY_WEIGHT_DEFAULT, WEIGHT_TYPES, allows1rm } from './exerciseConfig';
 import { API_BASE_URL, WORKOUT_STORAGE_KEY, EDIT_EXERCISE_DRAFT_KEY, SESSION_ID_KEY, ORDER_COUNTER_KEY, LAST_ACTIVE_KEY, sortGroups } from './constants';
@@ -11,7 +12,16 @@ import { createEmptySet, createSetFromHistory } from './utils';
 import { ScreenHeader } from './components/ScreenHeader';
 import { SetDisplayRow } from './components/SetDisplayRow';
 import { ImageUploadSlot } from './components/ImageUploadSlot';
-import { motion, AnimatePresence } from 'framer-motion'; 
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  addToQueue, 
+  cacheExercises, 
+  getCachedExercises, 
+  syncAll, 
+  subscribeToStatus, 
+  initNetworkListeners,
+  type SyncStatus
+} from './offlineSync'; 
 
 // --- TYPES ---
 
@@ -43,6 +53,7 @@ interface WorkoutSet {
   setGroupId?: string;
   isEditing?: boolean;
   rowNumber?: number;
+  pendingId?: string;  // ID операции в офлайн-очереди
   effectiveWeight?: number;  // Итоговый вес для аналитики (input * 2 + гриф и т.д.)
 }
 
@@ -70,7 +81,7 @@ interface GlobalWorkoutSession {
     exercises: { name: string; sets: any[]; supersetId?: string }[];
 }
 
-// --- API SERVICE (REAL FETCH) ---
+// --- API SERVICE (WITH OFFLINE SUPPORT) ---
 
 const api = {
   request: async (endpoint: string, options: RequestInit = {}) => {
@@ -88,8 +99,23 @@ const api = {
   },
 
   getInit: async () => {
-      const data = await api.request('init');
-      return data || { groups: [], exercises: [] };
+      try {
+          const data = await api.request('init');
+          if (data && data.exercises) {
+              // Кэшируем данные при успешном запросе
+              cacheExercises(data);
+              return data;
+          }
+      } catch (e) {
+          console.error('getInit failed:', e);
+      }
+      // Если запрос не удался, пробуем вернуть кэш
+      const cached = getCachedExercises();
+      if (cached) {
+          console.log('Using cached exercises data');
+          return cached;
+      }
+      return { groups: [], exercises: [] };
   },
 
   getHistory: async (exerciseId: string) => {
@@ -108,6 +134,7 @@ const api = {
       const data = await api.request(`analytics?${params.toString()}`);
       return data || null;
   },
+  
   confirmBaseline: async (proposalId: string, action: 'CONFIRM' | 'SNOOZE' | 'DECLINE') => {
       return await api.request('confirm_baseline', {
           method: 'POST',
@@ -115,12 +142,44 @@ const api = {
       });
   },
 
-  saveSet: async (data: any) => {
-      return await api.request('save_set', { method: 'POST', body: JSON.stringify(data) });
+  saveSet: async (data: any): Promise<{ status?: string; row_number?: number; pending_id?: string; offline?: boolean } | null> => {
+      // Пробуем отправить на сервер
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/save_set`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+          });
+          if (res.ok) {
+              return await res.json();
+          }
+      } catch (e) {
+          console.log('saveSet failed, queuing for later:', e);
+      }
+      
+      // Если не удалось - добавляем в очередь
+      const pendingId = addToQueue('saveSet', data);
+      return { status: 'queued', pending_id: pendingId, offline: true };
   },
 
-  updateSet: async (data: any) => {
-      return await api.request('update_set', { method: 'POST', body: JSON.stringify(data) });
+  updateSet: async (data: any): Promise<{ status?: string; pending_id?: string; offline?: boolean } | null> => {
+      // Пробуем отправить на сервер
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/update_set`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+          });
+          if (res.ok) {
+              return await res.json();
+          }
+      } catch (e) {
+          console.log('updateSet failed, queuing for later:', e);
+      }
+      
+      // Если не удалось - добавляем в очередь
+      const pendingId = addToQueue('updateSet', data);
+      return { status: 'queued', pending_id: pendingId, offline: true };
   },
 
   createExercise: async (name: string, group: string) => {
@@ -320,6 +379,59 @@ const Modal = ({ isOpen, onClose, title, children, headerAction }: any) => (
     )}
   </AnimatePresence>
 );
+
+// --- SYNC STATUS COMPONENT ---
+
+const SyncStatusBadge = () => {
+  const [status, setStatus] = useState<SyncStatus>('online');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToStatus((newStatus, count) => {
+      setStatus(newStatus);
+      setPendingCount(count);
+      setIsSyncing(newStatus === 'syncing');
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleSync = async () => {
+    if (pendingCount > 0 && !isSyncing) {
+      setIsSyncing(true);
+      await syncAll();
+      setIsSyncing(false);
+    }
+  };
+
+  // Не показываем ничего если онлайн и нет pending
+  if (status === 'online' && pendingCount === 0) {
+    return null;
+  }
+
+  return (
+    <button
+      onClick={handleSync}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+        status === 'offline' 
+          ? 'bg-red-500/20 text-red-400' 
+          : pendingCount > 0 
+            ? 'bg-yellow-500/20 text-yellow-400' 
+            : 'bg-green-500/20 text-green-400'
+      }`}
+    >
+      {isSyncing ? (
+        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+      ) : status === 'offline' ? (
+        <CloudOff className="w-3.5 h-3.5" />
+      ) : (
+        <Cloud className="w-3.5 h-3.5" />
+      )}
+      {pendingCount > 0 && <span>{pendingCount}</span>}
+      {status === 'offline' && <span>Офлайн</span>}
+    </button>
+  );
+};
 
 // --- FEATURES ---
 
@@ -828,33 +940,40 @@ const WorkoutScreen = ({ initialExercise, allExercises, onBack, incrementOrder, 
     setSessionData(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map(s => s.id === setId ? { ...s, completed: true, order, setGroupId: localGroupId, effectiveWeight } : s) } }));
     timer.resetAndStart();
 
-    try {
-        const result = await api.saveSet({
-            exercise_id: exId,
-            exercise_name: exercise?.name,
-            weight: effectiveWeight,
-            input_weight: inputWeight,
-            reps: parseInt(set.reps),
-            rest: parseFloat(set.rest) || 0,
-            note: sessionData[exId].note,
-            set_group_id: localGroupId,
-            order
-        });
-        
-        if (result?.row_number) {
-            setSessionData(prev => ({
-                ...prev,
-                [exId]: {
-                    ...prev[exId],
-                    sets: prev[exId].sets.map(s => s.id === setId ? { ...s, rowNumber: result.row_number } : s)
-                }
-            }));
-        }
-        
-        notify('success');
-    } catch (e) {
-        notify('error');
+    const result = await api.saveSet({
+        exercise_id: exId,
+        exercise_name: exercise?.name,
+        weight: effectiveWeight,
+        input_weight: inputWeight,
+        reps: parseInt(set.reps),
+        rest: parseFloat(set.rest) || 0,
+        note: sessionData[exId].note,
+        set_group_id: localGroupId,
+        order
+    });
+    
+    if (result?.row_number) {
+        // Успешно сохранено на сервере
+        setSessionData(prev => ({
+            ...prev,
+            [exId]: {
+                ...prev[exId],
+                sets: prev[exId].sets.map(s => s.id === setId ? { ...s, rowNumber: result.row_number } : s)
+            }
+        }));
+    } else if (result?.pending_id) {
+        // Сохранено в офлайн-очередь
+        setSessionData(prev => ({
+            ...prev,
+            [exId]: {
+                ...prev[exId],
+                sets: prev[exId].sets.map(s => s.id === setId ? { ...s, pendingId: result.pending_id } : s)
+            }
+        }));
     }
+    
+    // Показываем успех в любом случае (данные либо на сервере, либо в очереди)
+    notify('success');
   };
 
   const handleUpdateSet = (exId: string, setId: string, field: string, val: string) => {
@@ -1604,6 +1723,11 @@ const App = () => {
     }
   }, [allExercises]);
 
+  // Инициализация слушателей сети для офлайн-режима
+  useEffect(() => {
+    initNetworkListeners();
+  }, []);
+
   // Пинг сервера каждые 14 минут, чтобы предотвратить засыпание на бесплатном тарифе Render
   useEffect(() => {
     const pingInterval = setInterval(() => {
@@ -1663,6 +1787,11 @@ const App = () => {
 
   return (
     <div className="bg-zinc-950 min-h-screen text-zinc-50 font-sans selection:bg-blue-500/30 pt-24">
+      {/* Индикатор офлайн-статуса */}
+      <div className="fixed top-2 right-4 z-50">
+        <SyncStatusBadge />
+      </div>
+      
       {screen === 'home' && <HomeScreen groups={groups} onSearch={(q: string) => { setSearchQuery(q); if(q) setScreen('exercises'); }} onSelectGroup={(g: string) => { setSelectedGroup(g); setScreen('exercises'); }} onAllExercises={() => { setSelectedGroup(null); setScreen('exercises'); }} onHistory={() => setScreen('history')} onAnalytics={() => setScreen('analytics')} searchQuery={searchQuery} />}
       {screen === 'analytics' && <AnalyticsScreen onBack={() => setScreen('home')} />}
       {screen === 'history' && <HistoryScreen onBack={() => setScreen('home')} />}
