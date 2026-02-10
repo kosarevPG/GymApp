@@ -1377,12 +1377,12 @@ const HistoryScreen = ({ onBack }: any) => {
             <ScreenHeader title="История" onBack={onBack} />
             <div className="p-4 space-y-4 pb-20">
                 {history.length > 0 && (
-                    <div className="flex justify-end">
+                    <div className="flex justify-center pb-2">
                         <button
                             onClick={expandOrCollapseAll}
-                            className="text-sm font-medium text-blue-400 hover:text-blue-300 px-3 py-1.5 rounded-lg bg-blue-500/10 active:bg-blue-500/20"
+                            className="w-full max-w-xs text-sm font-semibold text-blue-400 hover:text-blue-300 py-2.5 px-4 rounded-xl bg-blue-500/15 border border-blue-500/30 active:bg-blue-500/25"
                         >
-                            {allExpanded ? 'Свернуть все' : 'Развернуть все'}
+                            {allExpanded ? 'Свернуть все тренировки' : 'Развернуть все тренировки'}
                         </button>
                     </div>
                 )}
