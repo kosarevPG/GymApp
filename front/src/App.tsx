@@ -1610,7 +1610,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                 <ImageUploadSlot
                     value={image}
                     onChange={setImage}
-                    onUpload={(f) => handleUpload(f, 1)}
+                    onUpload={(f: File) => handleUpload(f, 1)}
                     uploading={uploadingImage1}
                     label="Основное фото"
                     inputId="edit-exercise-image-1"
@@ -1619,7 +1619,7 @@ const EditExerciseModal = ({ isOpen, onClose, exercise, groups, onSave }: { isOp
                 <ImageUploadSlot
                     value={image2}
                     onChange={setImage2}
-                    onUpload={(f) => handleUpload(f, 2)}
+                    onUpload={(f: File) => handleUpload(f, 2)}
                     uploading={uploadingImage2}
                     label="Дополнительное фото"
                     inputId="edit-exercise-image-2"
