@@ -298,8 +298,8 @@ class GoogleSheetsManager:
                 elif header_lower in ['image_url', 'image', 'фото']: image_url_col = i
                 elif header_lower in ['image_url2', 'image2', 'фото2', 'фото_2']: image_url2_col = i
                 elif header_lower in ['equipment_type', 'equipment']: equipment_col = i
-                elif header_lower in ['exercise_type', 'type']: exercise_type_col = i
-                elif header_lower in ['weight_type', 'weighttype']: weight_type_col = i
+                elif header_lower in ['exercise_type']: exercise_type_col = i
+                elif header_lower in ['weight_type', 'weighttype', 'type']: weight_type_col = i
                 elif header_lower in ['base_wt', 'base_weight', 'baseweight']: base_wt_col = i
                 elif header_lower in ['multiplier']: multiplier_col = i
             
